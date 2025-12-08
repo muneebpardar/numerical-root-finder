@@ -18,6 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 st.markdown("""
     <style>
     .force-header h1 {
@@ -197,13 +198,12 @@ st.markdown("""
 
 st.markdown("---")
 
-# Track if user has ever calculated anything
-if 'has_interacted' not in st.session_state:
-    st.session_state.has_interacted = False
+# One-time intro card (shows only until dismissed)
+if 'intro_dismissed' not in st.session_state:
+    st.session_state.intro_dismissed = False
 
-# If no interaction yet, show your intro
-if not st.session_state.has_interacted:
-    st.markdown("""
+if not st.session_state.intro_dismissed:
+            st.markdown("""
     <div style="
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 2rem;
@@ -247,7 +247,13 @@ if not st.session_state.has_interacted:
         </p>
     </div>
     """, unsafe_allow_html=True)
-
+            
+            # Dismiss button styled to match your theme
+            if st.button("✨ Got it! Don’t show again", use_container_width=True):
+                st.session_state.intro_dismissed = True
+                st.rerun()
+            st.markdown("---")
+    
 # Sidebar
 st.sidebar.header("⚙️ Configuration")
 
@@ -451,19 +457,19 @@ if problem_type == "🎯 Root Finding":
 
     if method in ["Bisection Method", "False Position Method"]:
         col1, col2 = st.sidebar.columns(2)
-        a = col1.number_input("a (left):", value=-2.0, format="%.4f")
-        b = col2.number_input("b (right):", value=2.0, format="%.4f")
+        a = col1.number_input("a (left):", value=-2.0, format="%.10f")
+        b = col2.number_input("b (right):", value=2.0, format="%.10f")
 
     elif method == "Newton-Raphson Method":
-        x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.4f")
+        x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
 
     elif method == "Secant Method":
         col1, col2 = st.sidebar.columns(2)
-        x0 = col1.number_input("First guess (x₀):", value=1.0, format="%.4f")
-        x1 = col2.number_input("Second guess (x₁):", value=2.0, format="%.4f")
+        x0 = col1.number_input("First guess (x₀):", value=1.0, format="%.10f")
+        x1 = col2.number_input("Second guess (x₁):", value=2.0, format="%.10f")
 
     elif method == "Fixed Point Method":
-        x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.4f")
+        x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
         st.sidebar.info("💡 Transform f(x)=0 to x=g(x). For x³-x-2=0, use g(x)=(x+2)^(1/3)")
         g_str = st.sidebar.text_input("g(x) function:", value="(x + 2)**(1/3)", 
                                        help="Example: For x³-x-2=0 → x³=x+2 → x=(x+2)^(1/3)")
@@ -477,9 +483,9 @@ if problem_type == "🎯 Root Finding":
 
     elif method == "🔬 Compare All Methods":
         col1, col2 = st.sidebar.columns(2)
-        a = col1.number_input("a (for interval methods):", value=-2.0, format="%.4f")
-        b = col2.number_input("b (for interval methods):", value=2.0, format="%.4f")
-        x0_comp = st.sidebar.number_input("Initial guess:", value=1.5, format="%.4f")
+        a = col1.number_input("a (for interval methods):", value=-2.0, format="%.10f")
+        b = col2.number_input("b (for interval methods):", value=2.0, format="%.10f")
+        x0_comp = st.sidebar.number_input("Initial guess:", value=1.5, format="%.10f")
         g_str = st.sidebar.text_input("g(x) for Fixed Point:", value="(x + 2)**(1/3)")
         is_valid_g, g, error_msg_g = validate_function(g_str)
 
@@ -838,13 +844,13 @@ elif problem_type == "📊 Lagrange Interpolation":
         x_val = col1.number_input(
             f"x{i}:",
             value=float(st.session_state.x_points[i]) if i < len(st.session_state.x_points) else 0.0,
-            format="%.4f",
+            format="%.10f",
             key=f"x_{i}"
         )
         y_val = col2.number_input(
             f"y{i}:",
             value=float(st.session_state.y_points[i]) if i < len(st.session_state.y_points) else 0.0,
-            format="%.4f",
+            format="%.10f",
             key=f"y_{i}"
         )
         
@@ -862,7 +868,7 @@ elif problem_type == "📊 Lagrange Interpolation":
     eval_x = st.sidebar.number_input(
         "Evaluate P(x) at:",
         value=0.5,
-        format="%.4f",
+        format="%.10f",
         help="Enter x value to evaluate the polynomial"
     )
     
