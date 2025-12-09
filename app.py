@@ -198,62 +198,155 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("---")
-
-# One-time intro card (shows only until dismissed)
+# ============================================================================
+# INTRO CARD - APPEARS FIRST LIKE AN AD
+# ============================================================================
 if 'intro_dismissed' not in st.session_state:
     st.session_state.intro_dismissed = False
 
+# Show intro card as an overlay if not dismissed
 if not st.session_state.intro_dismissed:
-            st.markdown("""
-    <div style="
+    # Add CSS for overlay and blur effect
+    st.markdown("""
+    <style>
+    /* Overlay for intro card */
+    .intro-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    /* Blur the main content */
+    .main .block-container {
+        filter: blur(5px) !important;
+        pointer-events: none !important;
+        user-select: none !important;
+    }
+    
+    /* Hide sidebar */
+    section[data-testid="stSidebar"] {
+        filter: blur(5px) !important;
+        pointer-events: none !important;
+    }
+    
+    /* Style for the intro card */
+    .intro-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
         border-radius: 20px;
-        text-align: center;
-        box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-        margin-bottom: 2rem;
+        padding: 2rem;
+        width: 90%;
+        max-width: 500px;
         color: white;
-    ">
-        <h2 style="color: white; margin-top: 0;">👋 Heyyy! I'm Muneeb</h2>
-        <p style="font-size: 1.2rem; max-width: 800px; margin: 0 auto 1.5rem;">
-            A post-AI-era coder 🤖 who loves building cool projects, breaking bugs, 
-            and growing CS communities that actually vibe 💥
-        </p>
-        <div style="display: flex; justify-content: center; gap: 1.5rem; margin-top: 1rem; flex-wrap: wrap;">
-            <a href="https://github.com/muneebpardar" target="_blank" style="
-                background: rgba(255,255,255,0.2);
-                padding: 8px 20px;
-                border-radius: 30px;
-                color: white;
-                text-decoration: none;
-                font-weight: 600;
-                backdrop-filter: blur(4px);
-                border: 1px solid rgba(255,255,255,0.3);
-                transition: all 0.3s ease;
-            ">GitHub: @muneebpardar</a>
-            <a href="https://www.linkedin.com/in/muhammad-muneeb-5426a0323" target="_blank" style="
-                background: rgba(255,255,255,0.2);
-                padding: 8px 20px;
-                border-radius: 30px;
-                color: white;
-                text-decoration: none;
-                font-weight: 600;
-                backdrop-filter: blur(4px);
-                border: 1px solid rgba(255,255,255,0.3);
-                transition: all 0.3s ease;
-            ">LinkedIn</a>
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        text-align: center;
+        position: relative;
+        z-index: 10000;
+        border: 3px solid #ffd700;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+        70% { box-shadow: 0 0 0 15px rgba(255, 215, 0, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+    }
+    
+    .intro-badge {
+        position: absolute;
+        top: -10px;
+        right: -10px;
+        background: #ff4757;
+        color: white;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        transform: rotate(10deg);
+    }
+    
+    .continue-btn-container {
+        position: fixed;
+        top: 75%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10001;
+        width: 200px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create the intro overlay
+    st.markdown("""
+    <div class="intro-overlay">
+        <div class="intro-card">
+            <div class="intro-badge">WELCOME</div>
+            <h2 style="color: white; margin-top: 0;">👋 Heyyy! I'm Muneeb</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 1rem; line-height: 1.5;">
+                A post-AI-era coder 🤖 who loves building cool projects, breaking bugs, 
+                and growing CS communities that actually vibe 💥
+            </p>
+            
+            <div style="display: flex; justify-content: center; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                <a href="https://github.com/muneebpardar" target="_blank" style="
+                    background: rgba(255,255,255,0.2);
+                    padding: 8px 20px;
+                    border-radius: 30px;
+                    color: white;
+                    text-decoration: none;
+                    font-weight: 600;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid rgba(255,255,255,0.3);
+                    transition: all 0.3s ease;
+                ">GitHub: @muneebpardar</a>
+                <a href="https://www.linkedin.com/in/muhammad-muneeb-5426a0323" target="_blank" style="
+                    background: rgba(255,255,255,0.2);
+                    padding: 8px 20px;
+                    border-radius: 30px;
+                    color: white;
+                    text-decoration: none;
+                    font-weight: 600;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid rgba(255,255,255,0.3);
+                    transition: all 0.3s ease;
+                ">LinkedIn</a>
+            </div>
+            
+            <div style="margin: 1.5rem 0; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px;">
+                <p style="margin: 0; font-size: 0.9rem;">
+                    <strong>Built this calculator to make numerical methods</strong>
+                </p>
+                <h3 style="color: #ffd700; margin: 0.5rem 0;">✨ Less Scary, More Visual ✨</h3>
+            </div>
+            
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.6); margin-top: 1rem;">
+                Click "Continue" to start using the calculator
+            </div>
         </div>
-        <p style="margin-top: 1.5rem; font-size: 0.95rem; opacity: 0.9;">
-            Built this calculator to make numerical methods ✨ less scary, more visual ✨
-        </p>
     </div>
     """, unsafe_allow_html=True)
-            
-            # Dismiss button styled to match your theme
-            if st.button("✨ Got it! Don’t show again", use_container_width=True):
-                st.session_state.intro_dismissed = True
-                st.rerun()
-            st.markdown("---")
+    
+    # Create the continue button (this appears on the overlay)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<div class="continue-btn-container"></div>', unsafe_allow_html=True)
+        if st.button("🚀 Continue to Calculator", type="primary", use_container_width=True):
+            st.session_state.intro_dismissed = True
+            st.rerun()
+    
+    # Stop here - don't render the rest of the app
+    st.stop()
+
+# ============================================================================
+# MAIN APP CONTENT (only shows after intro is dismissed)
+# ============================================================================
     
 # Sidebar
 st.sidebar.header("⚙️ Configuration")
