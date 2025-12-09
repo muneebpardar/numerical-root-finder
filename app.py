@@ -10,6 +10,7 @@ from methods.newton import newton_raphson
 from methods.secant import secant
 from methods.fixed_point import fixed_point
 from methods.lagrange import lagrange_interpolation, format_polynomial  # NEW IMPORT
+from methods.divided_difference import divided_difference, format_newton_polynomial
 from utils.validators import validate_function, validate_interval, preprocess_function
 
 st.set_page_config(
@@ -257,10 +258,9 @@ if not st.session_state.intro_dismissed:
 # Sidebar
 st.sidebar.header("⚙️ Configuration")
 
-# Problem type selection
 problem_type = st.sidebar.radio(
     "**📚 Select Problem Type:**",
-    ["🎯 Root Finding", "📊 Lagrange Interpolation"],
+    ["🎯 Root Finding", "📊 Lagrange Interpolation", "🔢 Divided Difference Interpolation"],
     key="problem_type"
 )
 
@@ -1555,4 +1555,418 @@ elif problem_type == "📊 Lagrange Interpolation":
             st.code("Points: (0, 1), (1, 3), (2, 2)\nResult: Parabola through all 3 points", language="python")
 
 st.markdown("---")
+# ============================================================================
+# DIVIDED DIFFERENCE INTERPOLATION SECTION
+# ============================================================================
+elif problem_type == "🔢 Divided Difference Interpolation":
+    st.sidebar.markdown("### 🔢 Divided Difference Method")
+    
+    # Degree selection
+    degree = st.sidebar.selectbox(
+        "Polynomial Degree:",
+        [1, 2, 3, 4],
+        index=2,
+        help="Select the degree of interpolating polynomial"
+    )
+    
+    st.sidebar.info(f"💡 You need {degree + 1} data points for degree {degree} polynomial")
+    
+    # Number of points
+    num_points = degree + 1
+    
+    st.sidebar.markdown(f"### 📍 Enter {num_points} Data Points")
+    
+    # Initialize session state for points
+    if 'x_points_dd' not in st.session_state:
+        st.session_state.x_points_dd = [0.0] * 5
+    if 'y_points_dd' not in st.session_state:
+        st.session_state.y_points_dd = [0.0] * 5
+    
+    # Default examples
+    default_points_dd = {
+        1: {'x': [0, 1], 'y': [1, 3]},
+        2: {'x': [0, 1, 2], 'y': [1, 3, 2]},
+        3: {'x': [0, 1, 2, 3], 'y': [1, 3, 2, 5]},
+        4: {'x': [0, 1, 2, 3, 4], 'y': [1, 3, 2, 5, 3]}
+    }
+    
+    # Quick example button
+    if st.sidebar.button("📝 Load Example", use_container_width=True, key="load_dd_example"):
+        st.session_state.x_points_dd = default_points_dd[degree]['x'] + [0.0] * (5 - len(default_points_dd[degree]['x']))
+        st.session_state.y_points_dd = default_points_dd[degree]['y'] + [0.0] * (5 - len(default_points_dd[degree]['y']))
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    # Input points
+    x_points_dd = []
+    y_points_dd = []
+    
+    for i in range(num_points):
+        st.sidebar.markdown(f"**Point {i + 1}:**")
+        col1, col2 = st.sidebar.columns(2)
+        
+        x_val = col1.number_input(
+            f"x{i}:",
+            value=float(st.session_state.x_points_dd[i]) if i < len(st.session_state.x_points_dd) else 0.0,
+            format="%.10f",
+            key=f"x_dd_{i}"
+        )
+        y_val = col2.number_input(
+            f"y{i}:",
+            value=float(st.session_state.y_points_dd[i]) if i < len(st.session_state.y_points_dd) else 0.0,
+            format="%.10f",
+            key=f"y_dd_{i}"
+        )
+        
+        x_points_dd.append(x_val)
+        y_points_dd.append(y_val)
+    
+    # Update session state
+    st.session_state.x_points_dd = x_points_dd + [0.0] * (5 - len(x_points_dd))
+    st.session_state.y_points_dd = y_points_dd + [0.0] * (5 - len(y_points_dd))
+    
+    st.sidebar.markdown("---")
+    
+    # Evaluation point
+    st.sidebar.markdown("### 🎯 Evaluation")
+    eval_x_dd = st.sidebar.number_input(
+        "Evaluate P(x) at:",
+        value=0.5,
+        format="%.10f",
+        help="Enter x value to evaluate the polynomial",
+        key="eval_x_dd"
+    )
+    
+    # Display options
+    st.sidebar.markdown("### 📊 Display")
+    show_table_dd = st.sidebar.checkbox("Show Divided Difference Table", value=True, key="show_table_dd")
+    show_graph_dd = st.sidebar.checkbox("Show Graph", value=True, key="show_graph_dd")
+    show_steps_dd = st.sidebar.checkbox("Show Step-by-Step Solution", value=True, key="show_steps_dd")
+    
+    st.sidebar.markdown("---")
+    calculate_dd = st.sidebar.button("🚀 INTERPOLATE", type="primary", use_container_width=True, key="calc_dd")
+    
+    # Main content
+    if calculate_dd:
+        # Validate unique x values
+        if len(set(x_points_dd)) != len(x_points_dd):
+            st.error("❌ Error: All x values must be unique!")
+            st.stop()
+        
+        # Compute interpolation
+        with st.spinner("Calculating divided difference interpolation..."):
+            result_dd = divided_difference(x_points_dd, y_points_dd, degree=degree)
+        
+        if result_dd['success']:
+            st.success(f"✅ {result_dd['message']}")
+            
+            # Display Newton polynomial form
+            st.markdown("### 📐 Newton's Divided Difference Polynomial")
+            
+            newton_poly_str = format_newton_polynomial(result_dd['coefficients'], result_dd['x_points'])
+            st.code(newton_poly_str, language="text")
+            
+            st.markdown("---")
+            
+            # Step-by-step solution
+            if show_steps_dd:
+                st.markdown("### 📝 Detailed Step-by-Step Solution")
+                
+                # Step 1: Understanding the method
+                with st.expander("📖 **Step 1: Understanding Newton's Divided Difference Method**", expanded=True):
+                    st.markdown("""
+                    **Newton's Divided Difference Form:**
+                    
+                    The polynomial is constructed as:
+                    """)
+                    st.latex(r"P(x) = a_0 + a_1(x-x_0) + a_2(x-x_0)(x-x_1) + ... + a_n(x-x_0)(x-x_1)...(x-x_{n-1})")
+                    
+                    st.markdown("""
+                    **Advantages over Lagrange:**
+                    - More efficient when adding new data points
+                    - Easier to compute for many points
+                    - Divided difference table shows the structure clearly
+                    """)
+                
+                # Step 2: Build divided difference table
+                with st.expander("🔧 **Step 2: Building the Divided Difference Table**", expanded=True):
+                    st.markdown("""
+                    We build a table where:
+                    - **Column 0:** Original y-values (f[x_i])
+                    - **Column 1:** First divided differences f[x_i, x_{i+1}]
+                    - **Column 2:** Second divided differences f[x_i, x_{i+1}, x_{i+2}]
+                    - And so on...
+                    
+                    **Formula for divided differences:**
+                    """)
+                    st.latex(r"f[x_i, x_{i+1}, ..., x_{i+k}] = \frac{f[x_{i+1}, ..., x_{i+k}] - f[x_i, ..., x_{i+k-1}]}{x_{i+k} - x_i}")
+                    
+                    # Show calculations
+                    n = len(x_points_dd)
+                    dd_table = result_dd['divided_diff_table']
+                    
+                    st.markdown("#### Calculation Steps:")
+                    
+                    # Show first differences
+                    st.markdown("**First Divided Differences:**")
+                    for i in range(n - 1):
+                        numerator = dd_table[i+1][0] - dd_table[i][0]
+                        denominator = x_points_dd[i+1] - x_points_dd[i]
+                        result_val = dd_table[i][1]
+                        st.code(f"f[x{i}, x{i+1}] = ({dd_table[i+1][0]:.6f} - {dd_table[i][0]:.6f}) / ({x_points_dd[i+1]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                    
+                    # Show second differences if applicable
+                    if n > 2:
+                        st.markdown("**Second Divided Differences:**")
+                        for i in range(n - 2):
+                            numerator = dd_table[i+1][1] - dd_table[i][1]
+                            denominator = x_points_dd[i+2] - x_points_dd[i]
+                            result_val = dd_table[i][2]
+                            st.code(f"f[x{i}, x{i+1}, x{i+2}] = ({dd_table[i+1][1]:.6f} - {dd_table[i][1]:.6f}) / ({x_points_dd[i+2]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                    
+                    # Show third differences if applicable
+                    if n > 3:
+                        st.markdown("**Third Divided Differences:**")
+                        for i in range(n - 3):
+                            numerator = dd_table[i+1][2] - dd_table[i][2]
+                            denominator = x_points_dd[i+3] - x_points_dd[i]
+                            result_val = dd_table[i][3]
+                            st.code(f"f[x{i}, x{i+1}, x{i+2}, x{i+3}] = ({dd_table[i+1][2]:.6f} - {dd_table[i][2]:.6f}) / ({x_points_dd[i+3]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                
+                # Step 3: Extract coefficients
+                with st.expander("📊 **Step 3: Extract Newton Coefficients**", expanded=True):
+                    st.markdown("The coefficients for Newton's form are taken from the **first row** (or diagonal) of the divided difference table:")
+                    
+                    coeff_data = []
+                    for i, coeff in enumerate(result_dd['coefficients']):
+                        if i == 0:
+                            term = f"a₀"
+                            corresponds = "f[x₀]"
+                        elif i == 1:
+                            term = f"a₁"
+                            corresponds = "f[x₀, x₁]"
+                        elif i == 2:
+                            term = f"a₂"
+                            corresponds = "f[x₀, x₁, x₂]"
+                        else:
+                            term = f"a₃"
+                            corresponds = f"f[x₀, x₁, ..., x₂]"
+                        
+                        coeff_data.append({
+                            'Coefficient': term,
+                            'Value': f"{coeff:.6f}",
+                            'Corresponds to': corresponds
+                        })
+                    
+                    st.table(pd.DataFrame(coeff_data))
+                
+                # Step 4: Build polynomial
+                with st.expander("🔨 **Step 4: Construct the Polynomial**", expanded=True):
+                    st.markdown("Using the coefficients, we build the Newton polynomial:")
+                    
+                    st.code(newton_poly_str, language="text")
+                    
+                    st.markdown("**Breaking it down:**")
+                    for i, coeff in enumerate(result_dd['coefficients']):
+                        if i == 0:
+                            st.write(f"- Term {i+1}: `{coeff:.6f}` (constant term)")
+                        else:
+                            factors = " × ".join([f"(x - {result_dd['x_points'][j]:.4f})" for j in range(i)])
+                            st.write(f"- Term {i+1}: `{coeff:.6f} × {factors}`")
+                
+                # Step 5: Evaluate
+                with st.expander(f"🎯 **Step 5: Evaluate at x = {eval_x_dd}**", expanded=True):
+                    st.markdown(f"Let's evaluate P({eval_x_dd}) step by step using nested multiplication:")
+                    
+                    # Show Horner's method calculation
+                    st.markdown("**Using Horner's Method (efficient evaluation):**")
+                    
+                    eval_steps = []
+                    n = len(result_dd['coefficients'])
+                    value = result_dd['coefficients'][n - 1]
+                    
+                    eval_steps.append(f"Start with last coefficient: {value:.6f}")
+                    
+                    for i in range(n - 2, -1, -1):
+                        old_value = value
+                        value = value * (eval_x_dd - result_dd['x_points'][i]) + result_dd['coefficients'][i]
+                        eval_steps.append(f"Step {n-i}: {old_value:.6f} × ({eval_x_dd:.4f} - {result_dd['x_points'][i]:.4f}) + {result_dd['coefficients'][i]:.6f} = {value:.6f}")
+                    
+                    for step in eval_steps:
+                        st.code(step)
+                    
+                    st.success(f"**Final Result:** P({eval_x_dd}) = {value:.6f}")
+            
+            st.markdown("---")
+            
+            # Divided Difference Table
+            if show_table_dd:
+                st.markdown("### 📊 Divided Difference Table")
+                
+                # Create formatted table
+                n = len(x_points_dd)
+                dd_table = result_dd['divided_diff_table']
+                
+                # Build table with proper headers
+                table_data = []
+                for i in range(n):
+                    row = {'i': i, 'x_i': f"{x_points_dd[i]:.4f}", 'f[x_i]': f"{dd_table[i][0]:.6f}"}
+                    
+                    for j in range(1, n):
+                        if i + j < n:
+                            if j == 1:
+                                row[f'f[x_i,x_i+1]'] = f"{dd_table[i][j]:.6f}"
+                            elif j == 2:
+                                row[f'f[x_i,...,x_i+2]'] = f"{dd_table[i][j]:.6f}"
+                            else:
+                                row[f'f[x_i,...,x_i+{j}]'] = f"{dd_table[i][j]:.6f}"
+                        else:
+                            if j == 1:
+                                row[f'f[x_i,x_i+1]'] = ""
+                            elif j == 2:
+                                row[f'f[x_i,...,x_i+2]'] = ""
+                            else:
+                                row[f'f[x_i,...,x_i+{j}]'] = ""
+                    
+                    table_data.append(row)
+                
+                st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+                
+                st.info("💡 **Reading the table:** The first row contains all coefficients for Newton's polynomial!")
+            
+            # Metrics
+            st.markdown("---")
+            eval_result_dd = result_dd['polynomial'](eval_x_dd)
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Polynomial Degree", result_dd['degree'])
+            col2.metric(f"P({eval_x_dd})", f"{eval_result_dd:.6f}")
+            col3.metric("Data Points Used", len(result_dd['points']))
+            
+            st.markdown("---")
+            
+            # Data points table
+            st.markdown("### 📍 Input Data Points")
+            points_df_dd = pd.DataFrame(result_dd['points'])
+            st.dataframe(points_df_dd, use_container_width=True, hide_index=True)
+            
+            # Graph
+            if show_graph_dd:
+                st.markdown("---")
+                st.markdown("### 📈 Interpolation Graph")
+                
+                fig, ax = plt.subplots(figsize=(12, 6))
+                
+                # Generate smooth curve
+                x_min = min(x_points_dd) - 0.5
+                x_max = max(x_points_dd) + 0.5
+                x_smooth = np.linspace(x_min, x_max, 500)
+                y_smooth = [result_dd['polynomial'](xi) for xi in x_smooth]
+                
+                # Plot polynomial
+                ax.plot(x_smooth, y_smooth, 'g-', linewidth=2.5, label='Newton Polynomial')
+                ax.plot(x_points_dd, y_points_dd, 'ro', markersize=12, label='Data Points', zorder=5)
+                ax.plot(eval_x_dd, eval_result_dd, 'b*', markersize=20, label=f'P({eval_x_dd}) = {eval_result_dd:.4f}', zorder=10)
+                
+                # Add point labels
+                for i, (xi, yi) in enumerate(zip(x_points_dd, y_points_dd)):
+                    ax.annotate(f'({xi:.2f}, {yi:.2f})', 
+                               xy=(xi, yi), 
+                               xytext=(10, 10), 
+                               textcoords='offset points',
+                               fontsize=9,
+                               bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.7))
+                
+                ax.axhline(0, color='gray', linestyle='--', alpha=0.3)
+                ax.axvline(0, color='gray', linestyle='--', alpha=0.3)
+                ax.grid(True, alpha=0.3)
+                ax.legend(fontsize=11, loc='best')
+                ax.set_xlabel('x', fontsize=13, fontweight='bold')
+                ax.set_ylabel('P(x)', fontsize=13, fontweight='bold')
+                ax.set_title(f'Newton\'s Divided Difference Interpolation (Degree {degree})', fontsize=15, fontweight='bold')
+                
+                st.pyplot(fig)
+                
+                # Verification
+                st.markdown("### ✅ Verification at Data Points")
+                verification_data_dd = []
+                for i, point in enumerate(result_dd['points']):
+                    p_val = result_dd['polynomial'](point['x'])
+                    error = abs(p_val - point['y'])
+                    verification_data_dd.append({
+                        'Point #': i + 1,
+                        'x': f"{point['x']:.4f}",
+                        'Actual y': f"{point['y']:.4f}",
+                        'P(x)': f"{p_val:.4f}",
+                        'Error': f"{error:.2e}"
+                    })
+                
+                ver_df_dd = pd.DataFrame(verification_data_dd)
+                st.dataframe(ver_df_dd, use_container_width=True, hide_index=True)
+                
+                max_error_dd = max([abs(result_dd['polynomial'](point['x']) - point['y']) for point in result_dd['points']])
+                if max_error_dd < 1e-10:
+                    st.success("✅ Perfect fit! Polynomial passes through all data points.")
+                else:
+                    st.info(f"ℹ️ Maximum error at data points: {max_error_dd:.2e}")
+        
+        else:
+            st.error(f"❌ {result_dd['message']}")
+    
+    else:
+        # Welcome screen
+        st.info("👈 **Get Started:** Enter your data points and click INTERPOLATE")
+        
+        st.markdown("### 📚 About Newton's Divided Difference Method")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **What is Divided Difference Interpolation?**
+            
+            Newton's divided difference method constructs an interpolating polynomial using divided differences. It produces the same polynomial as Lagrange but in a different form.
+            
+            **Newton's Form:**
+            """)
+            st.latex(r"P(x) = a_0 + a_1(x-x_0) + a_2(x-x_0)(x-x_1) + ...")
+            
+            st.markdown("""
+            **Divided Difference Formula:**
+            """)
+            st.latex(r"f[x_i, x_{i+1}, ..., x_{i+k}] = \frac{f[x_{i+1}, ..., x_{i+k}] - f[x_i, ..., x_{i+k-1}]}{x_{i+k} - x_i}")
+        
+        with col2:
+            st.markdown("""
+            **Advantages:**
+            
+            - ✅ **Incremental:** Easy to add new points
+            - ✅ **Efficient:** Less computation than Lagrange for multiple points
+            - ✅ **Clear structure:** Divided difference table shows calculations
+            - ✅ **Same result:** Produces identical polynomial to Lagrange
+            
+            **Applications:**
+            - Dynamic data fitting (adding points over time)
+            - Numerical differentiation
+            - Approximation theory
+            - Computer graphics
+            """)
+        
+        st.markdown("---")
+        st.markdown("### 💡 Quick Example")
+        st.code("""
+Example: Points (0,1), (1,3), (2,2)
+
+Divided Difference Table:
+i  x_i  f[x_i]  f[x_i,x_i+1]  f[x_i,x_i+1,x_i+2]
+0  0    1       2.0           -1.5
+1  1    3       -1.0
+2  2    2
+
+Newton's Form:
+P(x) = 1 + 2(x-0) + (-1.5)(x-0)(x-1)
+     = 1 + 2x - 1.5x² + 1.5x
+     = -1.5x² + 3.5x + 1
+        """)
 st.caption("Numerical Computing Project | Root Finding & Interpolation Calculator")
