@@ -356,11 +356,7 @@ if not st.session_state.intro_dismissed:
         # Clear the query param
         st.query_params.clear()
         st.rerun()
-    
-    # Also provide a hidden Streamlit button as backup
-    if st.button("Skip Intro", key="skip_intro_hidden", help="Click to skip"):
-        st.session_state.intro_dismissed = True
-        st.rerun()
+
 
     st.stop()
     
