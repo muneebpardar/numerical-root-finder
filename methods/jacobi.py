@@ -178,7 +178,7 @@ def check_diagonal_dominance(A):
             'diagonal': diagonal,
             'off_diagonal_sum': row_sum,
             'is_dominant': dominant_in_row,
-            'condition': f"|{A[i,i]:.4f}| > {row_sum:.4f}" if dominant_in_row else f"|{A[i,i]:.4f}| ≤ {row_sum:.4f}"
+            'condition': f"|{A[i,i]:.10f}| > {row_sum:.10f}" if dominant_in_row else f"|{A[i,i]:.10f}| ≤ {row_sum:.10f}"
         })
         
         if not dominant_in_row:
@@ -196,7 +196,7 @@ def format_matrix(A):
     lines = []
     
     for i in range(n):
-        row = "[ " + "  ".join([f"{A[i,j]:8.4f}" for j in range(A.shape[1])]) + " ]"
+        row = "[ " + "  ".join([f"{A[i,j]:8.10f}" for j in range(A.shape[1])]) + " ]"
         lines.append(row)
     
     return "\n".join(lines)
@@ -209,6 +209,6 @@ def format_vector(v):
     
     lines = []
     for i in range(len(v)):
-        lines.append(f"[ {v[i]:8.4f} ]")
+        lines.append(f"[ {v[i]:8.10f} ]")
     
     return "\n".join(lines)

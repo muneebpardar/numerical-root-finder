@@ -567,27 +567,59 @@ if problem_type == "🎯 Root Finding":
         except:
             f_prime = None
 
-    # Method-specific parameters
+    # ====================================================================
+    # Method-specific parameters (with interval for Fixed Point)
+    # ====================================================================
     st.sidebar.markdown("### 📏 Parameters")
 
+    # Bisection and False Position
     if method in ["Bisection Method", "False Position Method"]:
         col1, col2 = st.sidebar.columns(2)
-        a = col1.number_input("a (left):", value=-2.0, format="%.10f")
-        b = col2.number_input("b (right):", value=2.0, format="%.10f")
+        a_str = col1.text_input("a (left):", value="-2")
+        b_str = col2.text_input("b (right):", value="2")
+        
+        try:
+            a = float(sympify(a_str))
+            b = float(sympify(b_str))
+        except:
+            st.sidebar.error("❌ Invalid interval. Use expressions like 2*pi or pi/4.")
+            st.stop()
 
+    # Newton-Raphson
     elif method == "Newton-Raphson Method":
         x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
 
+    # Secant Method
     elif method == "Secant Method":
         col1, col2 = st.sidebar.columns(2)
         x0 = col1.number_input("First guess (x₀):", value=1.0, format="%.10f")
         x1 = col2.number_input("Second guess (x₁):", value=2.0, format="%.10f")
 
+    # Fixed Point
     elif method == "Fixed Point Method":
+        # Interval input for convergence check / plotting
+        col1, col2 = st.sidebar.columns(2)
+        a_str = col1.text_input("a (left, for check/plot):", value="0")
+        b_str = col2.text_input("b (right, for check/plot):", value="2*pi")
+        
+        try:
+            a = float(sympify(a_str))
+            b = float(sympify(b_str))
+        except:
+            st.sidebar.error("❌ Invalid interval. Use expressions like 0 or 2*pi.")
+            st.stop()
+        
+        # Initial guess
         x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
-        st.sidebar.info("💡 Transform f(x)=0 to x=g(x). For x³-x-2=0, use g(x)=(x+2)^(1/3)")
-        g_str = st.sidebar.text_input("g(x) function:", value="(x + 2)**(1/3)", 
-                                       help="Example: For x³-x-2=0 → x³=x+2 → x=(x+2)^(1/3)")
+        
+        # g(x) input
+        st.sidebar.info("💡 Transform f(x)=0 to x=g(x). Example: x³-x-2 → g(x)=(x+2)^(1/3)")
+        g_str = st.sidebar.text_input(
+            "g(x) function:", 
+            value="(x + 2)**(1/3)", 
+            help="Example: For x³-x-2=0 → x³=x+2 → x=(x+2)^(1/3)"
+        )
+        
         # Validate g(x)
         is_valid_g, g, error_msg_g = validate_function(g_str)
         if not is_valid_g:
@@ -596,16 +628,27 @@ if problem_type == "🎯 Root Finding":
         else:
             st.sidebar.success("✅ Valid g(x)")
 
+    # Compare All Methods
     elif method == "🔬 Compare All Methods":
         col1, col2 = st.sidebar.columns(2)
-        a = col1.number_input("a (for interval methods):", value=-2.0, format="%.10f")
-        b = col2.number_input("b (for interval methods):", value=2.0, format="%.10f")
+        a_str = col1.text_input("a (for interval methods):", value="-2")
+        b_str = col2.text_input("b (for interval methods):", value="2")
+        
+        try:
+            a = float(sympify(a_str))
+            b = float(sympify(b_str))
+        except:
+            st.sidebar.error("❌ Invalid interval. Try expressions like pi/3 or -2*pi.")
+            st.stop()
+        
         x0_comp = st.sidebar.number_input("Initial guess:", value=1.5, format="%.10f")
         g_str = st.sidebar.text_input("g(x) for Fixed Point:", value="(x + 2)**(1/3)")
         is_valid_g, g, error_msg_g = validate_function(g_str)
 
+    # General parameters for all methods
     tolerance = st.sidebar.number_input("Tolerance:", value=1e-6, format="%.1e", min_value=1e-12)
     max_iter = st.sidebar.number_input("Max Iterations:", value=100, min_value=1, max_value=1000)
+
 
     # Display options
     st.sidebar.markdown("### 📊 Display")
@@ -933,12 +976,22 @@ elif problem_type == "📊 Lagrange Interpolation":
     if 'y_points' not in st.session_state:
         st.session_state.y_points = [0.0] * 4
     
-    # Default examples based on degree
+    # Default examples based on degree (Lagrange)
     default_points = {
-        1: {'x': [0, 1], 'y': [1, 3]},
-        2: {'x': [0, 1, 2], 'y': [1, 3, 2]},
-        3: {'x': [0, 1, 2, 3], 'y': [1, 3, 2, 5]}
+        1: {   # degree 1 → uses first 2 points
+            'x': [8.1, 8.3],
+            'y': [16.94410, 17.56492]
+        },
+        2: {   # degree 2 → first 3 points
+            'x': [8.1, 8.3, 8.6],
+            'y': [16.94410, 17.56492, 18.50515]
+        },
+        3: {   # degree 3 → full example (4 points)
+            'x': [8.1, 8.3, 8.6, 8.7],
+            'y': [16.94410, 17.56492, 18.50515, 18.82091]
+        }
     }
+
     
     # Quick example button
     if st.sidebar.button("📝 Load Example", use_container_width=True):
@@ -1699,11 +1752,24 @@ elif problem_type == "🔢 Divided Difference Interpolation":
         
         # Default examples
         default_points_dd = {
-            1: {'x': [0, 1], 'y': [1, 3]},
-            2: {'x': [0, 1, 2], 'y': [1, 3, 2]},
-            3: {'x': [0, 1, 2, 3], 'y': [1, 3, 2, 5]},
-            4: {'x': [0, 1, 2, 3, 4], 'y': [1, 3, 2, 5, 3]}
+            1: {  # degree 1 → 2 points
+                'x': [8.1, 8.3],
+                'y': [16.94410, 17.56492]
+            },
+            2: {  # degree 2 → 3 points
+                'x': [8.1, 8.3, 8.6],
+                'y': [16.94410, 17.56492, 18.50515]
+            },
+            3: {  # degree 3 → 4 points (your required example)
+                'x': [8.1, 8.3, 8.6, 8.7],
+                'y': [16.94410, 17.56492, 18.50515, 18.82091]
+            },
+            4: {  # degree 4 → repeat last as placeholder, or add your own 5th value
+                'x': [8.1, 8.3, 8.6, 8.7, 0],
+                'y': [16.94410, 17.56492, 18.50515, 18.82091, 0]
+            }
         }
+
         
         # Quick example button
         if st.sidebar.button("📝 Load Example", use_container_width=True, key="load_dd_example"):

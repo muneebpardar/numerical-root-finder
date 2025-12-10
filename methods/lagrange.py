@@ -130,7 +130,7 @@ def lagrange_interpolation(x_points, y_points, degree=None):
         
         for j in range(n):
             if j != i:
-                numerator_terms.append(f"(x - {x_points[j]:.4f})")
+                numerator_terms.append(f"(x - {x_points[j]:.10f})")
                 denominator *= (x_points[i] - x_points[j])
         
         basis_info.append({
@@ -138,7 +138,7 @@ def lagrange_interpolation(x_points, y_points, degree=None):
             'numerator': ' × '.join(numerator_terms),
             'denominator': denominator,
             'coefficient': y_points[i],
-            'term': f"{y_points[i]:.4f} × {' × '.join(numerator_terms)} / {denominator:.4f}"
+            'term': f"{y_points[i]:.10f} × {' × '.join(numerator_terms)} / {denominator:.10f}"
         })
     
     points_data = [{'x': float(x_points[i]), 'y': float(y_points[i])} for i in range(n)]
