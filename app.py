@@ -197,156 +197,178 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("---")
-# ============================================================================
-# INTRO CARD - APPEARS FIRST LIKE AN AD
-# ============================================================================
+# INTRO CARD (Overlay Modal) — WITH WORKING BUTTON
 if 'intro_dismissed' not in st.session_state:
     st.session_state.intro_dismissed = False
 
-# Show intro card as an overlay if not dismissed
+# Check if button was clicked (via query params or session state)
+if 'intro_button_clicked' not in st.session_state:
+    st.session_state.intro_button_clicked = False
+
 if not st.session_state.intro_dismissed:
-    # Add CSS for overlay and blur effect
+    # Inject CSS and HTML for the modal with embedded button
     st.markdown("""
-    <style>
-    /* Overlay for intro card */
-    .intro-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(10px);
-        z-index: 9999;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    /* Blur the main content */
-    .main .block-container {
-        filter: blur(5px) !important;
-        pointer-events: none !important;
-        user-select: none !important;
-    }
-    
-    /* Hide sidebar */
-    section[data-testid="stSidebar"] {
-        filter: blur(5px) !important;
-        pointer-events: none !important;
-    }
-    
-    /* Style for the intro card */
-    .intro-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 20px;
-        padding: 2rem;
-        width: 90%;
-        max-width: 500px;
-        color: white;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        text-align: center;
-        position: relative;
-        z-index: 10000;
-        border: 3px solid #ffd700;
-        animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
-        70% { box-shadow: 0 0 0 15px rgba(255, 215, 0, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
-    }
-    
-    .intro-badge {
-        position: absolute;
-        top: -10px;
-        right: -10px;
-        background: #ff4757;
-        color: white;
-        padding: 5px 15px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        transform: rotate(10deg);
-    }
-    
-    .continue-btn-container {
-        position: fixed;
-        top: 75%;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 10001;
-        width: 200px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Create the intro overlay
-    st.markdown("""
-    <div class="intro-overlay">
-        <div class="intro-card">
-            <div class="intro-badge">WELCOME</div>
-            <h2 style="color: white; margin-top: 0;">👋 Heyyy! I'm Muneeb</h2>
-            <p style="font-size: 1.1rem; margin-bottom: 1rem; line-height: 1.5;">
-                A post-AI-era coder 🤖 who loves building cool projects, breaking bugs, 
-                and growing CS communities that actually vibe 💥
-            </p>
-            
-            <div style="display: flex; justify-content: center; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
-                <a href="https://github.com/muneebpardar" target="_blank" style="
-                    background: rgba(255,255,255,0.2);
-                    padding: 8px 20px;
-                    border-radius: 30px;
-                    color: white;
-                    text-decoration: none;
-                    font-weight: 600;
-                    backdrop-filter: blur(4px);
-                    border: 1px solid rgba(255,255,255,0.3);
-                    transition: all 0.3s ease;
-                ">GitHub: @muneebpardar</a>
-                <a href="https://www.linkedin.com/in/muhammad-muneeb-5426a0323" target="_blank" style="
-                    background: rgba(255,255,255,0.2);
-                    padding: 8px 20px;
-                    border-radius: 30px;
-                    color: white;
-                    text-decoration: none;
-                    font-weight: 600;
-                    backdrop-filter: blur(4px);
-                    border: 1px solid rgba(255,255,255,0.3);
-                    transition: all 0.3s ease;
-                ">LinkedIn</a>
-            </div>
-            
-            <div style="margin: 1.5rem 0; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px;">
-                <p style="margin: 0; font-size: 0.9rem;">
-                    <strong>Built this calculator to make numerical methods</strong>
+        <style>
+        /* Full-page dark overlay */
+        .intro-overlay {
+            position: fixed;
+            top: 0; 
+            left: 0;
+            width: 100vw; 
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 999999; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Intro card container */
+        .intro-card {
+            width: 500px;
+            max-width: 90%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            padding: 2.5rem;
+            color: white;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+            border: 3px solid #ffd700;
+            animation: slideDown 0.5s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .intro-card h2 {
+            color: white !important;
+            margin: 0 0 1rem 0;
+            font-size: 2.2rem;
+            font-weight: 800;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .intro-card p {
+            color: rgba(255, 255, 255, 0.95) !important;
+            font-size: 1.1rem;
+            margin: 0 0 1.5rem 0;
+            line-height: 1.6;
+        }
+
+        .intro-links {
+            margin: 1.5rem 0 2rem 0;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .intro-link {
+            display: inline-block;
+            padding: 12px 28px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 25px;
+            color: white !important;
+            text-decoration: none;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            transition: all 0.3s ease;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .intro-link:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.6);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Continue button */
+        .intro-continue-btn {
+            margin-top: 1.5rem;
+            padding: 0.75rem 2rem;
+            background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+            color: #764ba2;
+            font-size: 1.1rem;
+            font-weight: 800;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+            transition: all 0.3s ease;
+            width: 100%;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .intro-continue-btn:hover {
+            background: linear-gradient(90deg, #ffed4e 0%, #ffd700 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6);
+        }
+
+        .intro-continue-btn:active {
+            transform: translateY(0);
+        }
+        </style>
+        
+        <div class="intro-overlay">
+            <div class="intro-card">
+                <h2>👋 Heyyy! I'm Muneeb</h2>
+                <p>
+                    A post-AI-era coder 🤖 who builds cool stuff and grows CS communities that actually vibe 💥
                 </p>
-                <h3 style="color: #ffd700; margin: 0.5rem 0;">✨ Less Scary, More Visual ✨</h3>
-            </div>
-            
-            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.6); margin-top: 1rem;">
-                Click "Continue" to start using the calculator
+                <div class="intro-links">
+                    <a href="https://github.com/muneebpardar" target="_blank" class="intro-link">
+                        🔗 GitHub
+                    </a>
+                    <a href="https://www.linkedin.com/in/muhammad-muneeb-5426a0323" target="_blank" class="intro-link">
+                        💼 LinkedIn
+                    </a>
+                </div>
+                <form method="get">
+                    <button type="submit" name="continue" value="true" class="intro-continue-btn">
+                        🚀 Continue to Calculator
+                    </button>
+                </form>
             </div>
         </div>
-    </div>
     """, unsafe_allow_html=True)
-    
-    # Create the continue button (this appears on the overlay)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<div class="continue-btn-container"></div>', unsafe_allow_html=True)
-        if st.button("🚀 Continue to Calculator", type="primary", use_container_width=True):
-            st.session_state.intro_dismissed = True
-            st.rerun()
-    
-    # Stop here - don't render the rest of the app
-    st.stop()
 
+    # Check if the continue button was clicked via query params
+    query_params = st.query_params
+    if query_params.get("continue") == "true":
+        st.session_state.intro_dismissed = True
+        # Clear the query param
+        st.query_params.clear()
+        st.rerun()
+    
+    # Also provide a hidden Streamlit button as backup
+    if st.button("Skip Intro", key="skip_intro_hidden", help="Click to skip"):
+        st.session_state.intro_dismissed = True
+        st.rerun()
+
+    st.stop()
+    
 # ============================================================================
 # MAIN APP CONTENT (only shows after intro is dismissed)
 # ============================================================================
+st.markdown("---")
+
     
 # Sidebar
 st.sidebar.header("⚙️ Configuration")
