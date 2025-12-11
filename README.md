@@ -141,6 +141,7 @@ Run the app
 bash
 Copy code
 streamlit run app.py
+```
 ---
 ### 🎯 Typical Workflow
 ## Root-Finding
@@ -153,7 +154,7 @@ Provide parameters (interval or guesses)
 Click Solve
 
 Review tables and plots
-```
+
 ---
 ## Lagrange Interpolation
 Enter data points
@@ -178,5 +179,6 @@ Visualizing convergence and interpolation
 ## 🤝 Contributions
 Pull requests are welcome!
 Additional methods (Müller, Hermite, Newton Interpolation, Gauss methods, etc.) are encouraged.
+
 
 
