@@ -141,8 +141,9 @@ Run the app
 bash
 Copy code
 streamlit run app.py
-🎯 Typical Workflow
-Root-Finding
+---
+### 🎯 Typical Workflow
+## Root-Finding
 Select a method
 
 Enter f(x)
@@ -153,7 +154,8 @@ Click Solve
 
 Review tables and plots
 
-Lagrange Interpolation
+---
+## Lagrange Interpolation
 Enter data points
 
 Generate polynomial
@@ -161,8 +163,8 @@ Generate polynomial
 Plot interpolation
 
 (Optional) Evaluate at specific x
-
-📚 Educational Purpose
+---
+## 📚 Educational Purpose
 Perfect for:
 
 Numerical Computing labs
@@ -172,7 +174,8 @@ Mathematical Computing courses
 Engineering/problem-solving demonstrations
 
 Visualizing convergence and interpolation
-
-🤝 Contributions
+---
+## 🤝 Contributions
 Pull requests are welcome!
 Additional methods (Müller, Hermite, Newton Interpolation, Gauss methods, etc.) are encouraged.
+
