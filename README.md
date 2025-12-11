@@ -164,6 +164,7 @@ Generate polynomial
 Plot interpolation
 
 (Optional) Evaluate at specific x
+
 ---
 ## 📚 Educational Purpose
 Perfect for:
@@ -175,10 +176,12 @@ Mathematical Computing courses
 Engineering/problem-solving demonstrations
 
 Visualizing convergence and interpolation
+
 ---
 ## 🤝 Contributions
 Pull requests are welcome!
 Additional methods (Müller, Hermite, Newton Interpolation, Gauss methods, etc.) are encouraged.
+
 
 
 
