@@ -1,13 +1,14 @@
 # 📘 Numerical Methods Solver – Streamlit App
 
-A fully interactive Streamlit-based application that solves nonlinear equations using multiple numerical root-finding algorithms.  
-Includes plotting, iteration tables, keypad input, method-specific parameters, and a comparison mode.
+An interactive Streamlit application that provides multiple numerical algorithms for solving nonlinear equations and performing interpolation.  
+Includes root-finding methods, Lagrange interpolation, plotting, iteration tables, keypad input, convergence validation, and a comparison mode.
 
 ---
 
 ## 🚀 Features
 
-### 🔢 1. Multiple Numerical Methods
+### 🔢 1. Numerical Methods Included
+#### **Root-Finding Methods**
 - Bisection Method  
 - False Position Method  
 - Newton–Raphson Method  
@@ -15,74 +16,85 @@ Includes plotting, iteration tables, keypad input, method-specific parameters, a
 - Fixed Point Iteration (with g(x))  
 - Compare All Methods Mode  
 
-Each method includes:
-- Input validation  
-- Iteration table  
-- Error computation  
-- Convergence detection  
-- Method-specific parameter controls  
+#### **Interpolation**
+- **Lagrange Interpolation Method**  
+  - Enter data points  
+  - Generates the Lagrange polynomial  
+  - Plots interpolation curve and given points  
+  - Supports evaluation at any value of x  
 
 ---
 
-### 🎛️ 2. Smart Sidebar Inputs
+## 🎛️ 2. Smart Sidebar Inputs
 
+### **Root-Finding Parameter Matrix**
 | Method | Interval `[a, b]` | Initial Guess | g(x) | Notes |
 |--------|---------------------|----------------|------|-------|
-| Bisection | ✔️ | ❌ | ❌ | Requires f(a)·f(b) < 0 |
+| Bisection | ✔️ | ❌ | ❌ | f(a)·f(b) < 0 required |
 | False Position | ✔️ | ❌ | ❌ | Bracketing required |
 | Newton–Raphson | ❌ | ✔️ (x₀) | ❌ | Uses derivative |
 | Secant | ❌ | ✔️ (x₀, x₁) | ❌ | Two initial guesses |
-| Fixed Point | ✔️ | ✔️ | ✔️ | x = g(x) iteration |
-| Compare All | ✔️ | ✔️ | ✔️ | Runs all methods |
+| Fixed Point | ✔️ | ✔️ | ✔️ | x = g(x) |
+| Compare All | ✔️ | ✔️ | ✔️ | Runs all |
+| Lagrange | ❌ | ❌ | ❌ | Requires data points |
+
+### **Lagrange Inputs**
+- Number of data points  
+- x-values list  
+- y-values list  
+- Evaluation point (optional)
 
 ---
 
-### 🧠 3. Expression Parser & Validator
-Supports:
-- Mathematical functions: `sin`, `cos`, `log`, `exp`, `sqrt`, etc.  
-- Constants: `pi`, `e`  
-- User-defined function `f(x)`  
-- User-defined `g(x)` for Fixed Point  
-- Automatic derivative computation (Newton–Raphson)  
+## 🧠 3. Expression Parser & Validator
+Works for:
+- Functions like `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`  
+- Constants `pi`, `e`  
+- User-defined `f(x)`  
+- User-defined `g(x)`  
+- Automatic derivative computation for Newton–Raphson  
 
-Invalid expressions generate real-time warnings.
+Invalid expressions show instant warnings.
 
 ---
 
 ## 📊 4. Visualization Tools
+### **Root-Finding**
 - Function plot  
-- Iteration movement plot  
-- g(x) vs x graph (Fixed Point)  
-- Adjustable intervals for visualization  
-- Iteration table containing:
-  - Approximated root  
-  - f(x)  
-  - Error  
-  - Iteration number  
+- Iteration movement graph  
+- g(x) vs x plot for Fixed Point  
+- Iteration table (root, f(x), error, iteration number)
+
+### **Lagrange Interpolation**
+- Interpolated polynomial plot  
+- Visual markers for given data points  
+- Evaluation of polynomial at user-input x  
+- Display of full symbolic polynomial  
 
 ---
 
 ## 🖩 5. Virtual Scientific Keypad
-A clickable keypad to enter:
-- Numbers  
+Includes:
+- Digits  
 - Operators  
 - Functions  
 - Constants (π, e)  
 - Parentheses  
 
-Reduces typing errors and helps beginners.
+Reduces typing mistakes.
 
 ---
 
 ## 🔬 6. Compare-All Mode
-Runs **all numerical methods side-by-side**, showing:
-- Individual iteration tables  
-- Convergence summary  
-- Final outputs  
+Runs every root-finding method side-by-side and shows:
+- Root  
+- Iteration tables  
+- Convergence speed  
+- Final error  
 - Execution time  
-- Combined comparison graph  
+- Combined comparison plot  
 
-Useful for analysis and lab reports.
+Excellent for assignments and analysis.
 
 ---
 
@@ -90,12 +102,12 @@ Useful for analysis and lab reports.
 
 | Component | Purpose |
 |----------|----------|
-| Python | Core language |
-| Streamlit | Frontend/UI |
-| SymPy | Parser, differentiation |
+| Python | Core logic |
+| Streamlit | UI frontend |
+| SymPy | Parsing, differentiation, symbolic interpolation |
 | NumPy | Numerical operations |
-| Matplotlib | Plotting |
-| Pandas | Iteration tables |
+| Matplotlib | Plots |
+| Pandas | Tables |
 
 ---
 
@@ -103,13 +115,14 @@ Useful for analysis and lab reports.
 
 project/
 │── app.py # Main Streamlit app
-│── requirements.txt # Dependencies
+│── requirements.txt
 │── methods/
 │ ├── bisection.py
 │ ├── false_position.py
 │ ├── secant.py
 │ ├── newton.py
 │ ├── fixed_point.py
+│ ├── lagrange.py # NEW: interpolation logic
 │── utils/
 │ ├── parser.py
 │ ├── keypad.py
@@ -117,54 +130,49 @@ project/
 │ ├── tables.py
 │── README.md
 
-yaml
-Copy code
-
 ---
 
 ## ▶️ Running the App
 
-### 1. Install dependencies
+### Install dependencies
 ```bash
 pip install -r requirements.txt
-2. Run the app
+Run the app
 bash
 Copy code
 streamlit run app.py
-The app will open automatically in your browser.
-
 🎯 Typical Workflow
-Select a numerical method
+Root-Finding
+Select a method
 
 Enter f(x)
 
-Provide required parameters
-
-Validate inputs
+Provide parameters (interval or guesses)
 
 Click Solve
 
-View:
+Review tables and plots
 
-Root
+Lagrange Interpolation
+Enter data points
 
-Iteration table
+Generate polynomial
 
-Graphs
+Plot interpolation
 
-Optionally choose Compare All
+(Optional) Evaluate at specific x
 
 📚 Educational Purpose
-Ideal for:
+Perfect for:
 
 Numerical Computing labs
 
-DSA / Mathematical Computing courses
+Mathematical Computing courses
 
-University assignments
+Engineering/problem-solving demonstrations
 
-Demonstrating convergence visually
+Visualizing convergence and interpolation
 
 🤝 Contributions
 Pull requests are welcome!
-Suggestions for new methods (Müller, Steffensen, Hybrid, etc.) are appreciated.
+Additional methods (Müller, Hermite, Newton Interpolation, Gauss methods, etc.) are encouraged.
