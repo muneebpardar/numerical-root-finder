@@ -4,43 +4,68 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
     """
     Jacobi Iterative Method for solving linear systems Ax = b
     
+    The Jacobi method is an iterative algorithm that solves Ax = b by decomposing
+    A into diagonal (D) and remainder (R) components: A = D + R
+    
+    Iteration formula: x^(k+1) = D^(-1)(b - Rx^(k))
+    Or component-wise: x_i^(k+1) = (b_i - Σ(a_ij * x_j^(k), j≠i)) / a_ii
+    
     Parameters:
     -----------
-    A : numpy.ndarray
-        Coefficient matrix (must be square)
-    b : numpy.ndarray
-        Right-hand side vector
-    x0 : numpy.ndarray, optional
+    A : numpy.ndarray or list
+        Coefficient matrix (must be square, n×n)
+    b : numpy.ndarray or list
+        Right-hand side vector (length n)
+    x0 : numpy.ndarray or list, optional
         Initial guess (if None, uses zero vector)
-    tol : float
-        Tolerance for convergence
-    max_iter : int
+    tol : float, default=1e-6
+        Convergence tolerance (infinity norm of error)
+    max_iter : int, default=100
         Maximum number of iterations
     
     Returns:
     --------
-    dict with:
-        - success: bool
-        - message: str
-        - solution: numpy.ndarray
-        - iterations: list of iteration data
-        - converged: bool
-        - final_error: float
+    dict with keys:
+        - success: bool - Whether method executed without errors
+        - message: str - Status message
+        - solution: numpy.ndarray - Final solution vector
+        - iterations: list - Iteration history with x, error, residual
+        - converged: bool - Whether method converged within tolerance
+        - final_error: float - Final error value
+        - diagonally_dominant: bool - Whether matrix is strictly diagonally dominant
+    
+    Notes:
+    ------
+    - Convergence is guaranteed if A is strictly diagonally dominant
+    - Method may converge for some non-diagonally dominant matrices
+    - Zero diagonal elements will cause failure
     """
     
-    # Validate inputs
-    A = np.array(A, dtype=float)
-    b = np.array(b, dtype=float)
-    
-    # Check if matrix is square
-    if A.shape[0] != A.shape[1]:
+    # Validate and convert inputs
+    try:
+        A = np.array(A, dtype=float)
+        b = np.array(b, dtype=float).flatten()  # Ensure 1D
+    except (ValueError, TypeError) as e:
         return {
             'success': False,
-            'message': 'Matrix A must be square',
+            'message': f'Invalid input: {str(e)}',
             'solution': None,
             'iterations': [],
             'converged': False,
-            'final_error': None
+            'final_error': None,
+            'diagonally_dominant': False
+        }
+    
+    # Check if matrix is square
+    if A.ndim != 2 or A.shape[0] != A.shape[1]:
+        return {
+            'success': False,
+            'message': f'Matrix A must be square. Current shape: {A.shape}',
+            'solution': None,
+            'iterations': [],
+            'converged': False,
+            'final_error': None,
+            'diagonally_dominant': False
         }
     
     n = A.shape[0]
@@ -49,48 +74,81 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
     if b.shape[0] != n:
         return {
             'success': False,
-            'message': 'Vector b must have same length as matrix A rows',
+            'message': f'Vector b length ({b.shape[0]}) must match matrix A rows ({n})',
             'solution': None,
             'iterations': [],
             'converged': False,
-            'final_error': None
+            'final_error': None,
+            'diagonally_dominant': False
         }
     
     # Check for zero diagonal elements
-    if np.any(np.diag(A) == 0):
+    diagonal_elements = np.diag(A)
+    if np.any(diagonal_elements == 0):
+        zero_indices = np.where(diagonal_elements == 0)[0]
         return {
             'success': False,
-            'message': 'Matrix A has zero diagonal elements. Jacobi method requires non-zero diagonal.',
+            'message': f'Matrix has zero diagonal element(s) at row(s) {zero_indices + 1}. Jacobi method requires non-zero diagonal.',
             'solution': None,
             'iterations': [],
             'converged': False,
-            'final_error': None
+            'final_error': None,
+            'diagonally_dominant': False
         }
     
-    # Check for diagonal dominance (warning, not error)
-    is_diagonally_dominant = True
-    for i in range(n):
-        row_sum = np.sum(np.abs(A[i, :])) - np.abs(A[i, i])
-        if np.abs(A[i, i]) <= row_sum:
-            is_diagonally_dominant = False
-            break
+    # Check for diagonal dominance (warning, not blocking)
+    is_diagonally_dominant, dominance_details = check_diagonal_dominance(A)
     
     # Initial guess
     if x0 is None:
         x = np.zeros(n)
     else:
-        x = np.array(x0, dtype=float)
+        try:
+            x = np.array(x0, dtype=float).flatten()
+            if x.shape[0] != n:
+                return {
+                    'success': False,
+                    'message': f'Initial guess x0 length ({x.shape[0]}) must match system size ({n})',
+                    'solution': None,
+                    'iterations': [],
+                    'converged': False,
+                    'final_error': None,
+                    'diagonally_dominant': is_diagonally_dominant
+                }
+        except (ValueError, TypeError) as e:
+            return {
+                'success': False,
+                'message': f'Invalid initial guess: {str(e)}',
+                'solution': None,
+                'iterations': [],
+                'converged': False,
+                'final_error': None,
+                'diagonally_dominant': is_diagonally_dominant
+            }
     
     # Store iterations
     iterations_data = []
     
+    # Store initial state (iteration 0)
+    initial_residual = np.linalg.norm(np.dot(A, x) - b, ord=np.inf)
+    iter_data_0 = {
+        'iteration': 0,
+        'x': x.copy(),
+        'error': 0.0,  # No previous iteration to compare
+        'residual': initial_residual
+    }
+    for i in range(n):
+        iter_data_0[f'x{i+1}'] = x[i]
+    iterations_data.append(iter_data_0)
+    
     # Jacobi iteration
     converged = False
+    error = 0.0
     
     for iteration in range(max_iter):
         x_new = np.zeros(n)
         
-        # Jacobi formula: x_i^(k+1) = (b_i - sum(a_ij * x_j^(k))) / a_ii
+        # Jacobi formula: x_i^(k+1) = (b_i - sum(a_ij * x_j^(k) for j≠i)) / a_ii
         for i in range(n):
             sum_val = 0.0
             for j in range(n):
@@ -99,10 +157,16 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
             
             x_new[i] = (b[i] - sum_val) / A[i, i]
         
-        # Calculate error (infinity norm)
-        error = np.linalg.norm(x_new - x, ord=np.inf)
+        # Calculate relative error: ||x^(k) - x^(k-1)|| / ||x^(k)||
+        numerator = np.linalg.norm(x_new - x, ord=np.inf)
+        denominator = np.linalg.norm(x_new, ord=np.inf)
+
+        if denominator < 1e-12:
+            error = numerator
+        else:
+            error = numerator / denominator
         
-        # Calculate residual (||Ax - b||)
+        # Calculate residual (||Ax - b||_∞)
         residual = np.linalg.norm(np.dot(A, x_new) - b, ord=np.inf)
         
         # Store iteration data
@@ -113,7 +177,7 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
             'residual': residual
         }
         
-        # Add individual components
+        # Add individual components for display
         for i in range(n):
             iter_data[f'x{i+1}'] = x_new[i]
         
@@ -122,20 +186,25 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
         # Check convergence
         if error < tol:
             converged = True
-            message = f'Converged after {iteration + 1} iterations'
+            message = f'✅ Converged after {iteration + 1} iterations'
             break
         
-        # Update x
+        # Check for divergence (optional safeguard)
+        if error > 1e10:
+            message = f'❌ Method diverged after {iteration + 1} iterations (error = {error:.2e})'
+            break
+        
+        # Update x for next iteration
         x = x_new.copy()
     
-    if not converged:
-        message = f'Did not converge after {max_iter} iterations. Final error: {error:.2e}'
+    if not converged and error <= 1e10:
+        message = f'⚠️ Did not converge after {max_iter} iterations. Final error: {error:.2e}'
     
-    # Add warning about diagonal dominance
+    # Add warnings about diagonal dominance
     if not is_diagonally_dominant and converged:
-        message += ' (Warning: Matrix is not strictly diagonally dominant, but method converged)'
+        message += '\n⚠️ Note: Matrix is not strictly diagonally dominant, but method converged'
     elif not is_diagonally_dominant and not converged:
-        message += ' (Warning: Matrix is not strictly diagonally dominant, convergence not guaranteed)'
+        message += '\n⚠️ Warning: Matrix is not strictly diagonally dominant. Convergence not guaranteed'
     
     return {
         'success': True,
@@ -144,7 +213,8 @@ def jacobi_method(A, b, x0=None, tol=1e-6, max_iter=100):
         'iterations': iterations_data,
         'converged': converged,
         'final_error': error,
-        'diagonally_dominant': is_diagonally_dominant
+        'diagonally_dominant': is_diagonally_dominant,
+        'dominance_details': dominance_details
     }
 
 
@@ -152,14 +222,19 @@ def check_diagonal_dominance(A):
     """
     Check if matrix A is strictly diagonally dominant
     
+    A matrix is strictly diagonally dominant if for each row i:
+    |a_ii| > Σ|a_ij| for all j ≠ i
+    
     Parameters:
     -----------
     A : numpy.ndarray
-        Coefficient matrix
+        Coefficient matrix (n×n)
     
     Returns:
     --------
-    tuple: (is_dominant, details)
+    tuple: (is_dominant: bool, details: list of dict)
+        - is_dominant: True if all rows satisfy diagonal dominance
+        - details: Per-row analysis with diagonal, off-diagonal sum, and status
     """
     A = np.array(A, dtype=float)
     n = A.shape[0]
@@ -171,6 +246,7 @@ def check_diagonal_dominance(A):
         diagonal = np.abs(A[i, i])
         row_sum = np.sum(np.abs(A[i, :])) - diagonal
         
+        # Strictly diagonally dominant: |a_ii| > sum (not >=)
         dominant_in_row = diagonal > row_sum
         
         details.append({
@@ -178,7 +254,8 @@ def check_diagonal_dominance(A):
             'diagonal': diagonal,
             'off_diagonal_sum': row_sum,
             'is_dominant': dominant_in_row,
-            'condition': f"|{A[i,i]:.10f}| > {row_sum:.10f}" if dominant_in_row else f"|{A[i,i]:.10f}| ≤ {row_sum:.10f}"
+            'condition': f"|{A[i,i]:.4f}| {'>' if dominant_in_row else '≤'} {row_sum:.4f}",
+            'status': '✅' if dominant_in_row else '❌'
         })
         
         if not dominant_in_row:
@@ -187,28 +264,102 @@ def check_diagonal_dominance(A):
     return is_dominant, details
 
 
-def format_matrix(A):
-    """Format matrix for display"""
+def format_matrix(A, precision=4):
+    """
+    Format matrix for display
+    
+    Parameters:
+    -----------
+    A : numpy.ndarray or list
+        Matrix to format
+    precision : int
+        Number of decimal places
+    
+    Returns:
+    --------
+    str: Formatted matrix string
+    """
     if isinstance(A, list):
         A = np.array(A)
     
-    n = A.shape[0]
+    n, m = A.shape
     lines = []
     
+    # Find max width for alignment
+    max_width = max(len(f"{A[i,j]:.{precision}f}") for i in range(n) for j in range(m))
+    
     for i in range(n):
-        row = "[ " + "  ".join([f"{A[i,j]:8.10f}" for j in range(A.shape[1])]) + " ]"
+        row = "[ " + "  ".join([f"{A[i,j]:{max_width}.{precision}f}" for j in range(m)]) + " ]"
         lines.append(row)
     
     return "\n".join(lines)
 
 
-def format_vector(v):
-    """Format vector for display"""
+def format_vector(v, precision=4):
+    """
+    Format vector for display
+    
+    Parameters:
+    -----------
+    v : numpy.ndarray or list
+        Vector to format
+    precision : int
+        Number of decimal places
+    
+    Returns:
+    --------
+    str: Formatted vector string
+    """
     if isinstance(v, list):
         v = np.array(v)
     
+    v = v.flatten()
+    n = len(v)
+    
+    # Find max width for alignment
+    max_width = max(len(f"{v[i]:.{precision}f}") for i in range(n))
+    
     lines = []
-    for i in range(len(v)):
-        lines.append(f"[ {v[i]:8.10f} ]")
+    for i in range(n):
+        lines.append(f"[ {v[i]:{max_width}.{precision}f} ]")
     
     return "\n".join(lines)
+
+
+# Additional utility function
+def calculate_spectral_radius(A):
+    """
+    Calculate spectral radius of Jacobi iteration matrix
+    ρ(T_J) = ρ(D^(-1)R) where A = D + R
+    
+    If ρ(T_J) < 1, Jacobi method converges
+    
+    Parameters:
+    -----------
+    A : numpy.ndarray
+        Coefficient matrix
+    
+    Returns:
+    --------
+    float: Spectral radius
+    """
+    A = np.array(A, dtype=float)
+    n = A.shape[0]
+    
+    # D^(-1)
+    D_inv = np.diag(1.0 / np.diag(A))
+    
+    # R = A - D
+    D = np.diag(np.diag(A))
+    R = A - D
+    
+    # Jacobi iteration matrix: T_J = -D^(-1) * R
+    T_J = -np.dot(D_inv, R)
+    
+    # Calculate eigenvalues
+    eigenvalues = np.linalg.eigvals(T_J)
+    
+    # Spectral radius is max absolute eigenvalue
+    spectral_radius = np.max(np.abs(eigenvalues))
+    
+    return spectral_radius

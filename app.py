@@ -11,6 +11,8 @@ from methods.secant import secant
 from methods.fixed_point import fixed_point
 from methods.lagrange import lagrange_interpolation, format_polynomial  # NEW IMPORT
 from methods.divided_difference import divided_difference, format_newton_polynomial
+from methods.jacobi import jacobi_method, check_diagonal_dominance, format_matrix, format_vector, calculate_spectral_radius
+from methods.gauss_seidel import gauss_seidel_method, calculate_spectral_radius_gs
 from utils.validators import validate_function, validate_interval, preprocess_function
 
 st.set_page_config(
@@ -371,7 +373,8 @@ st.sidebar.header("⚙️ Configuration")
 
 problem_type = st.sidebar.radio(
     "**📚 Select Problem Type:**",
-    ["🎯 Root Finding", "📊 Lagrange Interpolation", "🔢 Divided Difference Interpolation"],
+    ["🎯 Root Finding", "📊 Lagrange Interpolation", "🔢 Divided Difference Interpolation", 
+     "🔧 Linear Systems (Jacobi)", "⚡ Linear Systems (Gauss-Seidel)"],
     key="problem_type"
 )
 
@@ -2146,4 +2149,1187 @@ elif problem_type == "🔢 Divided Difference Interpolation":
         = 1 + 2x - 1.5x² + 1.5x
         = -1.5x² + 3.5x + 1
             """)
+
+           # ============================================================================
+# JACOBI METHOD SECTION (Linear Systems)
+# ============================================================================
+elif problem_type == "🔧 Linear Systems (Jacobi)":
+    st.sidebar.markdown("### 🔧 Jacobi Iterative Method")
+    
+    # System size selection
+    system_size = st.sidebar.selectbox(
+        "System Size (n×n):",
+        [2, 3, 4, 5],
+        index=1,
+        help="Select the size of your linear system"
+    )
+    
+    st.sidebar.info(f"💡 You'll enter a {system_size}×{system_size} matrix A and a {system_size}×1 vector b")
+    
+    # Initialize session state for matrix and vector
+    if 'matrix_A' not in st.session_state:
+        st.session_state.matrix_A = [[0.0] * system_size for _ in range(system_size)]
+    if 'vector_b' not in st.session_state:
+        st.session_state.vector_b = [0.0] * system_size
+    if 'initial_guess' not in st.session_state:
+        st.session_state.initial_guess = [0.0] * system_size
+    
+    # Adjust sizes if system_size changed
+    if len(st.session_state.matrix_A) != system_size:
+        st.session_state.matrix_A = [[0.0] * system_size for _ in range(system_size)]
+        st.session_state.vector_b = [0.0] * system_size
+        st.session_state.initial_guess = [0.0] * system_size
+    
+    # Example systems
+    examples = {
+        2: {
+            'name': 'Simple 2×2',
+            'A': [[4, 1], [1, 3]],
+            'b': [1, 2],
+            'x0': [0, 0]
+        },
+        3: {
+            'name': 'Diagonally Dominant 3×3',
+            'A': [[10, -1, 2], [-1, 11, -1], [2, -1, 10]],
+            'b': [6, 25, -11],
+            'x0': [0, 0, 0]
+        },
+        4: {
+            'name': 'Sparse 4×4',
+            'A': [[10, 1, 0, 0], [1, 10, 1, 0], [0, 1, 10, 1], [0, 0, 1, 10]],
+            'b': [12, 13, 13, 12],
+            'x0': [0, 0, 0, 0]
+        },
+        5: {
+            'name': 'Tridiagonal 5×5',
+            'A': [[10, 1, 0, 0, 0], [1, 10, 1, 0, 0], [0, 1, 10, 1, 0], [0, 0, 1, 10, 1], [0, 0, 0, 1, 10]],
+            'b': [12, 13, 14, 13, 12],
+            'x0': [0, 0, 0, 0, 0]
+        }
+    }
+    
+    # Quick example button
+    if st.sidebar.button("📝 Load Example System", use_container_width=True, key="load_jacobi_example"):
+        example = examples[system_size]
+        st.session_state.matrix_A = [row[:] for row in example['A']]
+        st.session_state.vector_b = example['b'][:]
+        st.session_state.initial_guess = example['x0'][:]
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    # Matrix A input
+    st.sidebar.markdown(f"### 📊 Matrix A ({system_size}×{system_size})")
+    
+    matrix_A = []
+    for i in range(system_size):
+        st.sidebar.markdown(f"**Row {i+1}:**")
+        row_cols = st.sidebar.columns(system_size)
+        row = []
+        for j in range(system_size):
+            val = row_cols[j].number_input(
+                f"a{i+1}{j+1}",
+                value=float(st.session_state.matrix_A[i][j]),
+                format="%.4f",
+                key=f"a_{i}_{j}",
+                label_visibility="collapsed"
+            )
+            row.append(val)
+        matrix_A.append(row)
+    
+    st.session_state.matrix_A = matrix_A
+    
+    st.sidebar.markdown("---")
+    
+    # Vector b input
+    st.sidebar.markdown(f"### 📍 Vector b ({system_size}×1)")
+    vector_b = []
+    for i in range(system_size):
+        val = st.sidebar.number_input(
+            f"b{i+1}:",
+            value=float(st.session_state.vector_b[i]),
+            format="%.4f",
+            key=f"b_{i}"
+        )
+        vector_b.append(val)
+    
+    st.session_state.vector_b = vector_b
+    
+    st.sidebar.markdown("---")
+    
+    # Initial guess
+    st.sidebar.markdown("### 🎯 Initial Guess x₀")
+    use_zero_guess = st.sidebar.checkbox("Use zero vector", value=True, key="use_zero_guess")
+    
+    if not use_zero_guess:
+        initial_guess = []
+        for i in range(system_size):
+            val = st.sidebar.number_input(
+                f"x₀[{i+1}]:",
+                value=float(st.session_state.initial_guess[i]),
+                format="%.4f",
+                key=f"x0_{i}"
+            )
+            initial_guess.append(val)
+        st.session_state.initial_guess = initial_guess
+    else:
+        initial_guess = None
+    
+    st.sidebar.markdown("---")
+    
+    # Method parameters
+    st.sidebar.markdown("### ⚙️ Method Parameters")
+    tolerance_jacobi = st.sidebar.number_input(
+        "Tolerance:",
+        value=1e-6,
+        format="%.1e",
+        min_value=1e-12,
+        key="tol_jacobi"
+    )
+    max_iter_jacobi = st.sidebar.number_input(
+        "Max Iterations:",
+        value=100,
+        min_value=1,
+        max_value=1000,
+        key="max_iter_jacobi"
+    )
+    
+    # Display options
+    st.sidebar.markdown("### 📊 Display")
+    show_steps_jacobi = st.sidebar.checkbox("Show Step-by-Step", value=True, key="show_steps_jacobi")
+    show_convergence_plot = st.sidebar.checkbox("Show Convergence Plot", value=True, key="show_conv_plot")
+    show_dominance_check = st.sidebar.checkbox("Show Diagonal Dominance Check", value=True, key="show_dom_check")
+    number_format_jacobi = st.sidebar.radio("Number Format:", ["Decimal", "Scientific"], horizontal=True, key="num_format_jacobi")
+    
+    st.sidebar.markdown("---")
+    calculate_jacobi = st.sidebar.button("🚀 SOLVE SYSTEM", type="primary", use_container_width=True, key="calc_jacobi")
+    
+    # Main content
+    if calculate_jacobi:
+        st.session_state.has_interacted = True
+        
+        # Convert to numpy arrays
+        A = np.array(matrix_A, dtype=float)
+        b = np.array(vector_b, dtype=float)
+        x0 = np.array(initial_guess) if initial_guess is not None else None
+        
+        # Display the system
+        st.markdown("### 📐 Linear System: Ax = b")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            st.markdown("**Matrix A:**")
+            st.code(format_matrix(A), language="text")
+        
+        with col2:
+            st.markdown("**Vector b:**")
+            st.code(format_vector(b), language="text")
+        
+        with col3:
+            st.markdown("**Initial x₀:**")
+            if x0 is not None:
+                st.code(format_vector(x0), language="text")
+            else:
+                st.code(format_vector(np.zeros(system_size)), language="text")
+        
+        st.markdown("---")
+        
+        # Add this code section after displaying the Linear System (after st.markdown("---"))
+        # and before the Diagonal Dominance Check
+
+        # Display Jacobi Iteration Equations
+        st.markdown("### 📐 Jacobi Iteration Equations")
+        st.markdown("The Jacobi method solves each variable using:")
+
+        # Display general formula
+        st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j \neq i} a_{ij} x_j^{(k)} \right)")
+
+        st.markdown("**For this system:**")
+
+        # Create columns for better layout if system is small
+        if system_size <= 3:
+            cols = st.columns(system_size)
+        else:
+            cols = None
+
+        for i in range(system_size):
+            # Build the equation string for LaTeX
+            numerator_parts = [f"{b[i]:.4g}"]  # Start with b_i
+            
+            # Collect all off-diagonal terms
+            for j in range(system_size):
+                if i != j and A[i, j] != 0:
+                    coeff = A[i, j]
+                    if coeff > 0:
+                        numerator_parts.append(f"- {coeff:.4g} x_{{{j+1}}}^{{(k)}}")
+                    else:
+                        numerator_parts.append(f"+ {abs(coeff):.4g} x_{{{j+1}}}^{{(k)}}")
+            
+            # Construct the full equation
+            numerator = " ".join(numerator_parts)
+            denominator = f"{A[i, i]:.4g}"
+            
+            equation = f"x_{{{i+1}}}^{{(k+1)}} = \\frac{{{numerator}}}{{{denominator}}}"
+            
+            # Display in columns if system is small, otherwise stack vertically
+            if cols and i < len(cols):
+                with cols[i]:
+                    st.latex(equation)
+            else:
+                st.latex(equation)
+
+        st.markdown("---")
+        # Check diagonal dominance first
+        if show_dominance_check:
+            st.markdown("### 🔍 Diagonal Dominance Check")
+            
+            is_dominant, details = check_diagonal_dominance(A)
+            
+            if is_dominant:
+                st.success("✅ Matrix is **strictly diagonally dominant**. Jacobi method is **guaranteed to converge**!")
+            else:
+                st.warning("⚠️ Matrix is **NOT strictly diagonally dominant**. Convergence is **not guaranteed** but may still occur.")
+            
+            # Show details table
+            dom_df = pd.DataFrame(details)
+            st.dataframe(dom_df, use_container_width=True, hide_index=True)
+            
+            # Calculate spectral radius
+            try:
+                spectral_rad = calculate_spectral_radius(A)
+                st.markdown(f"**Spectral Radius ρ(T_J):** {spectral_rad:.6f}")
+                
+                if spectral_rad < 1:
+                    st.success(f"✅ ρ(T_J) = {spectral_rad:.6f} < 1 → Method **will converge**")
+                else:
+                    st.error(f"❌ ρ(T_J) = {spectral_rad:.6f} ≥ 1 → Method **may not converge**")
+            except:
+                st.info("ℹ️ Could not calculate spectral radius")
+            
+            st.markdown("---")
+        
+        # Solve using Jacobi
+        with st.spinner("Solving system using Jacobi method..."):
+            result_jacobi = jacobi_method(A, b, x0=x0, tol=tolerance_jacobi, max_iter=max_iter_jacobi)
+        
+        if not result_jacobi['success']:
+            st.error(f"❌ {result_jacobi['message']}")
+            st.stop()
+        
+        # Display result
+        if result_jacobi['converged']:
+            st.success(result_jacobi['message'])
+        else:
+            st.warning(result_jacobi['message'])
+        
+        # Metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        col1.metric("Converged", "✅ Yes" if result_jacobi['converged'] else "❌ No")
+        col2.metric("Iterations", len(result_jacobi['iterations']) - 1)
+        col3.metric("Final Error", f"{result_jacobi['final_error']:.2e}")
+        
+        # Calculate final residual
+        final_residual = np.linalg.norm(np.dot(A, result_jacobi['solution']) - b, ord=np.inf)
+        col4.metric("Residual ||Ax-b||", f"{final_residual:.2e}")
+        
+        st.markdown("---")
+        
+        # Display solution
+        st.markdown("### ✅ Solution Vector x")
+        
+        sol_col1, sol_col2 = st.columns(2)
+        
+        with sol_col1:
+            st.markdown("**Vector Form:**")
+            st.code(format_vector(result_jacobi['solution']), language="text")
+        
+        with sol_col2:
+            st.markdown("**Component Form:**")
+            for i, val in enumerate(result_jacobi['solution']):
+                if number_format_jacobi == "Scientific":
+                    st.code(f"x{i+1} = {val:.6e}")
+                else:
+                    st.code(f"x{i+1} = {val:.8f}")
+        
+        st.markdown("---")
+        
+        # Verification
+        st.markdown("### 🔬 Verification: Ax = b")
+        
+        Ax = np.dot(A, result_jacobi['solution'])
+        
+        ver_col1, ver_col2, ver_col3 = st.columns(3)
+        
+        with ver_col1:
+            st.markdown("**Ax (computed):**")
+            st.code(format_vector(Ax), language="text")
+        
+        with ver_col2:
+            st.markdown("**b (expected):**")
+            st.code(format_vector(b), language="text")
+        
+        with ver_col3:
+            st.markdown("**Difference (Ax - b):**")
+            difference = Ax - b
+            st.code(format_vector(difference), language="text")
+        
+        st.markdown("---")
+        
+        # Step-by-step solution
+        if show_steps_jacobi:
+            st.markdown("### 📝 Detailed Step-by-Step Solution")
+            
+            # Step 1: Understanding
+            with st.expander("📖 **Step 1: Understanding Jacobi Method**", expanded=True):
+                st.markdown("""
+                The **Jacobi method** is an iterative algorithm for solving linear systems **Ax = b**.
+                
+                #### Algorithm:
+                1. Decompose matrix A = D + R, where:
+                   - **D** = diagonal part of A
+                   - **R** = remainder (off-diagonal elements)
+                
+                2. Iteration formula:
+                """)
+                st.latex(r"x^{(k+1)} = D^{-1}(b - Rx^{(k)})")
+                
+                st.markdown("Or component-wise:")
+                st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j \neq i} a_{ij} x_j^{(k)} \right)")
+                
+                st.markdown("""
+                #### Convergence:
+                - **Guaranteed** if A is strictly diagonally dominant
+                - **May converge** for other matrices if spectral radius ρ(T_J) < 1
+                """)
+            
+            # Step 2: Matrix decomposition
+            with st.expander("🔧 **Step 2: Matrix Decomposition (A = D + R)**", expanded=False):
+                D = np.diag(np.diag(A))
+                R = A - D
+                
+                st.markdown("**Diagonal Matrix D:**")
+                st.code(format_matrix(D), language="text")
+                
+                st.markdown("**Remainder Matrix R:**")
+                st.code(format_matrix(R), language="text")
+                
+                st.markdown("**Inverse of D (D⁻¹):**")
+                D_inv = np.diag(1.0 / np.diag(A))
+                st.code(format_matrix(D_inv), language="text")
+            
+            # Step 3: Iteration formula for each component
+            with st.expander("📐 **Step 3: Component-wise Iteration Formulas**", expanded=False):
+                st.markdown("For each variable xᵢ, we use:")
+                
+                for i in range(system_size):
+                    st.markdown(f"**Variable x{i+1}:**")
+                    
+                    # Build formula string
+                    terms = []
+                    for j in range(system_size):
+                        if i != j:
+                            if A[i, j] != 0:
+                                terms.append(f"{A[i,j]:.4f}·x{j+1}")
+                    
+                    sum_str = " - ".join(terms) if terms else "0"
+                    
+                    st.latex(f"x_{{{i+1}}}^{{(k+1)}} = \\frac{{1}}{{{A[i,i]:.4f}}} \\left( {b[i]:.4f} - ({sum_str}) \\right)")
+            
+            # Step 4: Show first few iterations in detail
+            with st.expander("🔄 **Step 4: Iteration Details (First 3 Iterations)**", expanded=False):
+                for iter_idx in range(min(4, len(result_jacobi['iterations']))):
+                    iter_data = result_jacobi['iterations'][iter_idx]
+                    
+                    st.markdown(f"#### Iteration {iter_data['iteration']}")
+                    
+                    if iter_data['iteration'] == 0:
+                        st.markdown("**Initial guess:**")
+                        st.code(format_vector(iter_data['x']), language="text")
+                    else:
+                        st.markdown("**Calculations:**")
+                        
+                        # Show calculation for each component
+                        x_prev = result_jacobi['iterations'][iter_idx - 1]['x']
+                        
+                        for i in range(system_size):
+                            sum_val = 0.0
+                            calc_parts = []
+                            
+                            for j in range(system_size):
+                                if i != j:
+                                    sum_val += A[i, j] * x_prev[j]
+                                    if A[i, j] != 0:
+                                        calc_parts.append(f"{A[i,j]:.4f}×{x_prev[j]:.4f}")
+                            
+                            sum_str = " + ".join(calc_parts) if calc_parts else "0"
+                            result_val = (b[i] - sum_val) / A[i, i]
+                            
+                            st.code(f"x{i+1} = ({b[i]:.4f} - ({sum_str})) / {A[i,i]:.4f} = {result_val:.6f}")
+                        
+                        st.markdown(f"**Updated x:**")
+                        st.code(format_vector(iter_data['x']), language="text")
+                    
+                    st.markdown(f"**Error:** {iter_data['error']:.6e}")
+                    st.markdown(f"**Residual:** {iter_data['residual']:.6e}")
+                    st.markdown("---")
+        
+        # Iteration table
+        st.markdown("### 📊 Complete Iteration History")
+        
+        # Prepare dataframe
+        iter_display = []
+        for iter_data in result_jacobi['iterations']:
+            row = {'Iteration': iter_data['iteration']}
+            
+            # Add components
+            for i in range(system_size):
+                if number_format_jacobi == "Scientific":
+                    row[f'x{i+1}'] = f"{iter_data[f'x{i+1}']:.6e}"
+                else:
+                    row[f'x{i+1}'] = f"{iter_data[f'x{i+1}']:.8f}"
+            
+            row['Error'] = f"{iter_data['error']:.6e}"
+            row['Residual'] = f"{iter_data['residual']:.6e}"
+            
+            iter_display.append(row)
+        
+        iter_df = pd.DataFrame(iter_display)
+        st.dataframe(iter_df, use_container_width=True, height=400)
+        
+        # Download button
+        csv = pd.DataFrame(result_jacobi['iterations']).to_csv(index=False)
+        st.download_button("📥 Download CSV", csv, "jacobi_iterations.csv", "text/csv")
+        
+        # Convergence plot
+        if show_convergence_plot and len(result_jacobi['iterations']) > 1:
+            st.markdown("---")
+            st.markdown("### 📈 Convergence Analysis")
+            
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+            
+            # Error plot
+            iterations = [it['iteration'] for it in result_jacobi['iterations']]
+            errors = [it['error'] for it in result_jacobi['iterations']]
+            residuals = [it['residual'] for it in result_jacobi['iterations']]
+            
+            ax1.semilogy(iterations, errors, 'b-o', linewidth=2, markersize=6, label='Error ||x^(k+1) - x^(k)||')
+            ax1.axhline(y=tolerance_jacobi, color='red', linestyle='--', linewidth=1.5, label=f'Tolerance = {tolerance_jacobi:.1e}')
+            ax1.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Error (log scale)', fontsize=12, fontweight='bold')
+            ax1.set_title('Convergence: Error vs Iteration', fontsize=14, fontweight='bold')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3, which='both')
+            
+            # Residual plot
+            ax2.semilogy(iterations, residuals, 'g-s', linewidth=2, markersize=6, label='Residual ||Ax - b||')
+            ax2.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Residual (log scale)', fontsize=12, fontweight='bold')
+            ax2.set_title('Convergence: Residual vs Iteration', fontsize=14, fontweight='bold')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3, which='both')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Component-wise convergence
+            st.markdown("#### 📊 Component-wise Convergence")
+            
+            fig2, ax3 = plt.subplots(figsize=(12, 6))
+            
+            for i in range(system_size):
+                component_vals = [it[f'x{i+1}'] for it in result_jacobi['iterations']]
+                ax3.plot(iterations, component_vals, '-o', linewidth=2, markersize=5, label=f'x{i+1}')
+            
+            ax3.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax3.set_ylabel('Value', fontsize=12, fontweight='bold')
+            ax3.set_title('Evolution of Solution Components', fontsize=14, fontweight='bold')
+            ax3.legend(loc='best')
+            ax3.grid(True, alpha=0.3)
+            
+            st.pyplot(fig2)
+    
+    else:
+        # Welcome screen
+        st.info("👈 **Get Started:** Enter your linear system Ax = b in the sidebar and click 'SOLVE SYSTEM'")
+        
+        st.markdown("### 📚 About Jacobi Iterative Method")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **What is the Jacobi Method?**
+            
+            The Jacobi method is an **iterative algorithm** for solving linear systems **Ax = b**. 
+            It's particularly useful for **large sparse systems** where direct methods (like Gaussian elimination) are impractical.
+            
+            #### Algorithm:
+            Starting from an initial guess x⁽⁰⁾, we iteratively update:
+            """)
+            st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j \neq i} a_{ij} x_j^{(k)} \right)")
+            
+            st.markdown("""
+            #### Key Features:
+            - ✅ **Simple to implement**
+            - ✅ **Parallelizable** (updates independent)
+            - ✅ **Low memory usage**
+            - ⚠️ **Slower convergence** than Gauss-Seidel
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Convergence Conditions:**
+            
+            The Jacobi method converges if:
+            
+            1. **Strictly Diagonally Dominant Matrix:**
+            """)
+            st.latex(r"|a_{ii}| > \sum_{j \neq i} |a_{ij}| \quad \forall i")
+            
+            st.markdown("""
+            2. **Spectral Radius Condition:**
+            """)
+            st.latex(r"\rho(D^{-1}R) < 1")
+            
+            st.markdown("""
+            where D is the diagonal part and R is the remainder.
+            
+            #### Applications:
+            - Solving PDEs (Poisson, heat equation)
+            - Circuit analysis
+            - Structural analysis
+            - Image processing
+            - Machine learning (distributed optimization)
+            """)
+        
+        st.markdown("---")
+        st.markdown("### 💡 Example Systems")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Diagonally Dominant (Converges):**")
+            st.code("""
+A = [ 10  -1   2 ]    b = [  6 ]
+    [ -1  11  -1 ]        [ 25 ]
+    [  2  -1  10 ]        [-11 ]
+
+Solution: x ≈ [1, 2, -1]
+            """, language="text")
+        
+        with col2:
+            st.markdown("**Not Dominant (May Not Converge):**")
+            st.code("""
+A = [ 2   3 ]    b = [ 5 ]
+    [ 3   2 ]        [ 5 ]
+
+May fail to converge!
+Use Gauss-Seidel or direct methods.
+            """, language="text")
+        
+        st.markdown("---")
+        st.markdown("### 🎓 Convergence Theory")
+        
+        st.markdown("""
+        **Error Bound:**
+        
+        If A is strictly diagonally dominant, the error after k iterations satisfies:
+        """)
+        st.latex(r"\|x^{(k)} - x^*\| \leq \left(\frac{\max_i \sum_{j \neq i} |a_{ij}|}{\min_i |a_{ii}|}\right)^k \|x^{(0)} - x^*\|")
+        
+        st.markdown("""
+        **Rate of Convergence:**
+        - Linear convergence with rate ρ(T_J)
+        - Faster when matrix is "more" diagonally dominant
+        - Convergence rate independent of initial guess
+        """)
+
+        # ============================================================================
+# GAUSS-SEIDEL METHOD SECTION (Linear Systems)
+# ============================================================================
+# Add this after the Jacobi section (or as a separate option)
+
+elif problem_type == "⚡ Linear Systems (Gauss-Seidel)":
+    st.sidebar.markdown("### ⚡ Gauss-Seidel Iterative Method")
+    
+    # System size selection
+    system_size = st.sidebar.selectbox(
+        "System Size (n×n):",
+        [2, 3, 4, 5],
+        index=1,
+        help="Select the size of your linear system"
+    )
+    
+    st.sidebar.info(f"💡 You'll enter a {system_size}×{system_size} matrix A and a {system_size}×1 vector b")
+    
+    # Initialize session state for matrix and vector
+    if 'matrix_A_gs' not in st.session_state:
+        st.session_state.matrix_A_gs = [[0.0] * system_size for _ in range(system_size)]
+    if 'vector_b_gs' not in st.session_state:
+        st.session_state.vector_b_gs = [0.0] * system_size
+    if 'initial_guess_gs' not in st.session_state:
+        st.session_state.initial_guess_gs = [0.0] * system_size
+    
+    # Adjust sizes if system_size changed
+    if len(st.session_state.matrix_A_gs) != system_size:
+        st.session_state.matrix_A_gs = [[0.0] * system_size for _ in range(system_size)]
+        st.session_state.vector_b_gs = [0.0] * system_size
+        st.session_state.initial_guess_gs = [0.0] * system_size
+    
+    # Example systems
+    examples_gs = {
+        2: {
+            'name': 'Simple 2×2',
+            'A': [[4, 1], [1, 3]],
+            'b': [1, 2],
+            'x0': [0, 0]
+        },
+        3: {
+            'name': 'Diagonally Dominant 3×3',
+            'A': [[10, -1, 2], [-1, 11, -1], [2, -1, 10]],
+            'b': [6, 25, -11],
+            'x0': [0, 0, 0]
+        },
+        4: {
+            'name': 'Sparse 4×4',
+            'A': [[10, 1, 0, 0], [1, 10, 1, 0], [0, 1, 10, 1], [0, 0, 1, 10]],
+            'b': [12, 13, 13, 12],
+            'x0': [0, 0, 0, 0]
+        },
+        5: {
+            'name': 'Tridiagonal 5×5',
+            'A': [[10, 1, 0, 0, 0], [1, 10, 1, 0, 0], [0, 1, 10, 1, 0], [0, 0, 1, 10, 1], [0, 0, 0, 1, 10]],
+            'b': [12, 13, 14, 13, 12],
+            'x0': [0, 0, 0, 0, 0]
+        }
+    }
+    
+    # Quick example button
+    if st.sidebar.button("📝 Load Example System", use_container_width=True, key="load_gs_example"):
+        example = examples_gs[system_size]
+        st.session_state.matrix_A_gs = [row[:] for row in example['A']]
+        st.session_state.vector_b_gs = example['b'][:]
+        st.session_state.initial_guess_gs = example['x0'][:]
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    # Matrix A input
+    st.sidebar.markdown(f"### 📊 Matrix A ({system_size}×{system_size})")
+    
+    matrix_A_gs = []
+    for i in range(system_size):
+        st.sidebar.markdown(f"**Row {i+1}:**")
+        row_cols = st.sidebar.columns(system_size)
+        row = []
+        for j in range(system_size):
+            val = row_cols[j].number_input(
+                f"a{i+1}{j+1}",
+                value=float(st.session_state.matrix_A_gs[i][j]),
+                format="%.4f",
+                key=f"a_gs_{i}_{j}",
+                label_visibility="collapsed"
+            )
+            row.append(val)
+        matrix_A_gs.append(row)
+    
+    st.session_state.matrix_A_gs = matrix_A_gs
+    
+    st.sidebar.markdown("---")
+    
+    # Vector b input
+    st.sidebar.markdown(f"### 📍 Vector b ({system_size}×1)")
+    vector_b_gs = []
+    for i in range(system_size):
+        val = st.sidebar.number_input(
+            f"b{i+1}:",
+            value=float(st.session_state.vector_b_gs[i]),
+            format="%.4f",
+            key=f"b_gs_{i}"
+        )
+        vector_b_gs.append(val)
+    
+    st.session_state.vector_b_gs = vector_b_gs
+    
+    st.sidebar.markdown("---")
+    
+    # Initial guess
+    st.sidebar.markdown("### 🎯 Initial Guess x₀")
+    use_zero_guess_gs = st.sidebar.checkbox("Use zero vector", value=True, key="use_zero_guess_gs")
+    
+    if not use_zero_guess_gs:
+        initial_guess_gs = []
+        for i in range(system_size):
+            val = st.sidebar.number_input(
+                f"x₀[{i+1}]:",
+                value=float(st.session_state.initial_guess_gs[i]),
+                format="%.4f",
+                key=f"x0_gs_{i}"
+            )
+            initial_guess_gs.append(val)
+        st.session_state.initial_guess_gs = initial_guess_gs
+    else:
+        initial_guess_gs = None
+    
+    st.sidebar.markdown("---")
+    
+    # Method parameters
+    st.sidebar.markdown("### ⚙️ Method Parameters")
+    tolerance_gs = st.sidebar.number_input(
+        "Tolerance:",
+        value=1e-6,
+        format="%.1e",
+        min_value=1e-12,
+        key="tol_gs"
+    )
+    max_iter_gs = st.sidebar.number_input(
+        "Max Iterations:",
+        value=100,
+        min_value=1,
+        max_value=1000,
+        key="max_iter_gs"
+    )
+    
+    # Display options
+    st.sidebar.markdown("### 📊 Display")
+    show_steps_gs = st.sidebar.checkbox("Show Step-by-Step", value=True, key="show_steps_gs")
+    show_convergence_plot_gs = st.sidebar.checkbox("Show Convergence Plot", value=True, key="show_conv_plot_gs")
+    show_dominance_check_gs = st.sidebar.checkbox("Show Diagonal Dominance Check", value=True, key="show_dom_check_gs")
+    number_format_gs = st.sidebar.radio("Number Format:", ["Decimal", "Scientific"], horizontal=True, key="num_format_gs")
+    
+    st.sidebar.markdown("---")
+    calculate_gs = st.sidebar.button("🚀 SOLVE SYSTEM", type="primary", use_container_width=True, key="calc_gs")
+    
+    # Main content
+    if calculate_gs:
+        st.session_state.has_interacted = True
+        
+        # Convert to numpy arrays
+        A_gs = np.array(matrix_A_gs, dtype=float)
+        b_gs = np.array(vector_b_gs, dtype=float)
+        x0_gs = np.array(initial_guess_gs) if initial_guess_gs is not None else None
+        
+        # Display the system
+        st.markdown("### 📐 Linear System: Ax = b")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            st.markdown("**Matrix A:**")
+            st.code(format_matrix(A_gs), language="text")
+        
+        with col2:
+            st.markdown("**Vector b:**")
+            st.code(format_vector(b_gs), language="text")
+        
+        with col3:
+            st.markdown("**Initial x₀:**")
+            if x0_gs is not None:
+                st.code(format_vector(x0_gs), language="text")
+            else:
+                st.code(format_vector(np.zeros(system_size)), language="text")
+        
+        st.markdown("---")
+        
+        # Display Gauss-Seidel Iteration Equations
+        st.markdown("### 📐 Gauss-Seidel Iteration Equations")
+        st.markdown("The Gauss-Seidel method uses **updated values immediately**:")
+
+        # Display general formula
+        st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j<i} a_{ij} x_j^{(k+1)} - \sum_{j>i} a_{ij} x_j^{(k)} \right)")
+
+        st.markdown("**For this system:**")
+
+        # Create columns for better layout if system is small
+        if system_size <= 3:
+            cols = st.columns(system_size)
+        else:
+            cols = None
+
+        for i in range(system_size):
+            # Build the equation string for LaTeX
+            numerator_parts = [f"{b_gs[i]:.4g}"]  # Start with b_i
+            
+            # Collect terms with updated values (j < i)
+            updated_terms = []
+            for j in range(i):
+                if A_gs[i, j] != 0:
+                    coeff = A_gs[i, j]
+                    if coeff > 0:
+                        updated_terms.append(f"- {coeff:.4g} x_{{{j+1}}}^{{(k+1)}}")
+                    else:
+                        updated_terms.append(f"+ {abs(coeff):.4g} x_{{{j+1}}}^{{(k+1)}}")
+            
+            # Collect terms with old values (j > i)
+            old_terms = []
+            for j in range(i + 1, system_size):
+                if A_gs[i, j] != 0:
+                    coeff = A_gs[i, j]
+                    if coeff > 0:
+                        old_terms.append(f"- {coeff:.4g} x_{{{j+1}}}^{{(k)}}")
+                    else:
+                        old_terms.append(f"+ {abs(coeff):.4g} x_{{{j+1}}}^{{(k)}}")
+            
+            # Combine all terms
+            all_terms = updated_terms + old_terms
+            if all_terms:
+                numerator_parts.extend(all_terms)
+            
+            # Construct the full equation
+            numerator = " ".join(numerator_parts)
+            denominator = f"{A_gs[i, i]:.4g}"
+            
+            equation = f"x_{{{i+1}}}^{{(k+1)}} = \\frac{{{numerator}}}{{{denominator}}}"
+            
+            # Display in columns if system is small, otherwise stack vertically
+            if cols and i < len(cols):
+                with cols[i]:
+                    st.latex(equation)
+            else:
+                st.latex(equation)
+
+        st.info("💡 **Key Difference from Jacobi:** Gauss-Seidel uses x^(k+1) values as soon as they're computed!")
+        st.markdown("---")
+        
+        # Check diagonal dominance first
+        if show_dominance_check_gs:
+            st.markdown("### 🔍 Diagonal Dominance Check")
+            
+            is_dominant, details = check_diagonal_dominance(A_gs)
+            
+            if is_dominant:
+                st.success("✅ Matrix is **strictly diagonally dominant**. Gauss-Seidel method is **guaranteed to converge**!")
+            else:
+                st.warning("⚠️ Matrix is **NOT strictly diagonally dominant**. Convergence is **not guaranteed** but may still occur.")
+            
+            # Show details table
+            dom_df = pd.DataFrame(details)
+            st.dataframe(dom_df, use_container_width=True, hide_index=True)
+            
+            # Calculate spectral radius
+            try:
+                from methods.gauss_seidel import calculate_spectral_radius_gs
+                spectral_rad = calculate_spectral_radius_gs(A_gs)
+                st.markdown(f"**Spectral Radius ρ(T_GS):** {spectral_rad:.6f}")
+                
+                if spectral_rad < 1:
+                    st.success(f"✅ ρ(T_GS) = {spectral_rad:.6f} < 1 → Method **will converge**")
+                else:
+                    st.error(f"❌ ρ(T_GS) = {spectral_rad:.6f} ≥ 1 → Method **may not converge**")
+            except:
+                st.info("ℹ️ Could not calculate spectral radius")
+            
+            st.markdown("---")
+        
+        # Solve using Gauss-Seidel
+        with st.spinner("Solving system using Gauss-Seidel method..."):
+            from methods.gauss_seidel import gauss_seidel_method
+            result_gs = gauss_seidel_method(A_gs, b_gs, x0=x0_gs, tol=tolerance_gs, max_iter=max_iter_gs)
+        
+        if not result_gs['success']:
+            st.error(f"❌ {result_gs['message']}")
+            st.stop()
+        
+        # Display result
+        if result_gs['converged']:
+            st.success(result_gs['message'])
+        else:
+            st.warning(result_gs['message'])
+        
+        # Metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        col1.metric("Converged", "✅ Yes" if result_gs['converged'] else "❌ No")
+        col2.metric("Iterations", len(result_gs['iterations']) - 1)
+        col3.metric("Final Error", f"{result_gs['final_error']:.2e}")
+        
+        # Calculate final residual
+        final_residual_gs = np.linalg.norm(np.dot(A_gs, result_gs['solution']) - b_gs, ord=np.inf)
+        col4.metric("Residual ||Ax-b||", f"{final_residual_gs:.2e}")
+        
+        st.markdown("---")
+        
+        # Display solution
+        st.markdown("### ✅ Solution Vector x")
+        
+        sol_col1, sol_col2 = st.columns(2)
+        
+        with sol_col1:
+            st.markdown("**Vector Form:**")
+            st.code(format_vector(result_gs['solution']), language="text")
+        
+        with sol_col2:
+            st.markdown("**Component Form:**")
+            for i, val in enumerate(result_gs['solution']):
+                if number_format_gs == "Scientific":
+                    st.code(f"x{i+1} = {val:.6e}")
+                else:
+                    st.code(f"x{i+1} = {val:.8f}")
+        
+        st.markdown("---")
+        
+        # Verification
+        st.markdown("### 🔬 Verification: Ax = b")
+        
+        Ax_gs = np.dot(A_gs, result_gs['solution'])
+        
+        ver_col1, ver_col2, ver_col3 = st.columns(3)
+        
+        with ver_col1:
+            st.markdown("**Ax (computed):**")
+            st.code(format_vector(Ax_gs), language="text")
+        
+        with ver_col2:
+            st.markdown("**b (expected):**")
+            st.code(format_vector(b_gs), language="text")
+        
+        with ver_col3:
+            st.markdown("**Difference (Ax - b):**")
+            difference_gs = Ax_gs - b_gs
+            st.code(format_vector(difference_gs), language="text")
+        
+        st.markdown("---")
+        
+        # Step-by-step solution
+        if show_steps_gs:
+            st.markdown("### 📝 Detailed Step-by-Step Solution")
+            
+            # Step 1: Understanding
+            with st.expander("📖 **Step 1: Understanding Gauss-Seidel Method**", expanded=True):
+                st.markdown("""
+                The **Gauss-Seidel method** is an improved version of Jacobi that uses updated values **immediately**.
+                
+                #### Algorithm:
+                1. Decompose matrix A = D + L + U, where:
+                   - **D** = diagonal part of A
+                   - **L** = lower triangular part (below diagonal)
+                   - **U** = upper triangular part (above diagonal)
+                
+                2. Iteration formula:
+                """)
+                st.latex(r"x^{(k+1)} = (D+L)^{-1}(b - Ux^{(k)})")
+                
+                st.markdown("Or component-wise:")
+                st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j<i} a_{ij} x_j^{(k+1)} - \sum_{j>i} a_{ij} x_j^{(k)} \right)")
+                
+                st.markdown("""
+                #### Key Difference from Jacobi:
+                - **Jacobi:** Uses all values from iteration k
+                - **Gauss-Seidel:** Uses x^(k+1) values as soon as they're computed
+                - **Result:** Typically **faster convergence** than Jacobi
+                
+                #### Convergence:
+                - **Guaranteed** if A is strictly diagonally dominant or symmetric positive definite
+                - **Faster** than Jacobi for most problems
+                - Cannot be parallelized (sequential updates)
+                """)
+            
+            # Step 2: Matrix decomposition
+            with st.expander("🔧 **Step 2: Matrix Decomposition (A = D + L + U)**", expanded=False):
+                D_gs = np.diag(np.diag(A_gs))
+                L_gs = np.tril(A_gs, -1)
+                U_gs = np.triu(A_gs, 1)
+                
+                st.markdown("**Diagonal Matrix D:**")
+                st.code(format_matrix(D_gs), language="text")
+                
+                st.markdown("**Lower Triangular L (below diagonal):**")
+                st.code(format_matrix(L_gs), language="text")
+                
+                st.markdown("**Upper Triangular U (above diagonal):**")
+                st.code(format_matrix(U_gs), language="text")
+            
+            # Step 3: Iteration formula for each component
+            with st.expander("📐 **Step 3: Component-wise Iteration Formulas**", expanded=False):
+                st.markdown("For each variable xᵢ (computed in order):")
+                
+                for i in range(system_size):
+                    st.markdown(f"**Variable x{i+1}:**")
+                    
+                    # Build formula string with updated and old values
+                    updated_terms = []
+                    old_terms = []
+                    
+                    for j in range(system_size):
+                        if i != j and A_gs[i, j] != 0:
+                            if j < i:
+                                # Already computed in this iteration
+                                updated_terms.append(f"{A_gs[i,j]:.4f}·x{j+1}^{{(k+1)}}")
+                            else:
+                                # Not yet computed, use old value
+                                old_terms.append(f"{A_gs[i,j]:.4f}·x{j+1}^{{(k)}}")
+                    
+                    updated_str = " - ".join(updated_terms) if updated_terms else ""
+                    old_str = " - ".join(old_terms) if old_terms else ""
+                    
+                    # Combine
+                    if updated_str and old_str:
+                        sum_str = f"({updated_str}) - ({old_str})"
+                    elif updated_str:
+                        sum_str = updated_str
+                    elif old_str:
+                        sum_str = old_str
+                    else:
+                        sum_str = "0"
+                    
+                    st.latex(f"x_{{{i+1}}}^{{(k+1)}} = \\frac{{1}}{{{A_gs[i,i]:.4f}}} \\left( {b_gs[i]:.4f} - {sum_str} \\right)")
+                    
+                    if i > 0:
+                        st.caption(f"⚡ Uses already-updated values: x₁^(k+1) through x{i}^(k+1)")
+            
+            # Step 4: Show first few iterations in detail
+            with st.expander("🔄 **Step 4: Iteration Details (First 3 Iterations)**", expanded=False):
+                for iter_idx in range(min(4, len(result_gs['iterations']))):
+                    iter_data = result_gs['iterations'][iter_idx]
+                    
+                    st.markdown(f"#### Iteration {iter_data['iteration']}")
+                    
+                    if iter_data['iteration'] == 0:
+                        st.markdown("**Initial guess:**")
+                        st.code(format_vector(iter_data['x']), language="text")
+                    else:
+                        st.markdown("**Calculations (sequential order):**")
+                        
+                        # Show calculation for each component
+                        x_prev = result_gs['iterations'][iter_idx - 1]['x']
+                        x_current = np.array(x_prev.copy())  # Will be updated component by component
+                        
+                        for i in range(system_size):
+                            sum_val = 0.0
+                            calc_parts = []
+                            
+                            # Use updated values for j < i
+                            for j in range(i):
+                                sum_val += A_gs[i, j] * x_current[j]
+                                if A_gs[i, j] != 0:
+                                    calc_parts.append(f"{A_gs[i,j]:.4f}×{x_current[j]:.4f}(new)")
+                            
+                            # Use old values for j > i
+                            for j in range(i + 1, system_size):
+                                sum_val += A_gs[i, j] * x_prev[j]
+                                if A_gs[i, j] != 0:
+                                    calc_parts.append(f"{A_gs[i,j]:.4f}×{x_prev[j]:.4f}(old)")
+                            
+                            sum_str = " + ".join(calc_parts) if calc_parts else "0"
+                            result_val = (b_gs[i] - sum_val) / A_gs[i, i]
+                            
+                            st.code(f"x{i+1} = ({b_gs[i]:.4f} - ({sum_str})) / {A_gs[i,i]:.4f} = {result_val:.6f}")
+                            
+                            # Update current value for next iteration
+                            x_current[i] = result_val
+                        
+                        st.markdown(f"**Updated x:**")
+                        st.code(format_vector(iter_data['x']), language="text")
+                    
+                    st.markdown(f"**Error:** {iter_data['error']:.6e}")
+                    st.markdown(f"**Residual:** {iter_data['residual']:.6e}")
+                    st.markdown("---")
+        
+        # Iteration table
+        st.markdown("### 📊 Complete Iteration History")
+        
+        # Prepare dataframe
+        iter_display_gs = []
+        for iter_data in result_gs['iterations']:
+            row = {'Iteration': iter_data['iteration']}
+            
+            # Add components
+            for i in range(system_size):
+                if number_format_gs == "Scientific":
+                    row[f'x{i+1}'] = f"{iter_data[f'x{i+1}']:.6e}"
+                else:
+                    row[f'x{i+1}'] = f"{iter_data[f'x{i+1}']:.8f}"
+            
+            row['Error'] = f"{iter_data['error']:.6e}"
+            row['Residual'] = f"{iter_data['residual']:.6e}"
+            
+            iter_display_gs.append(row)
+        
+        iter_df_gs = pd.DataFrame(iter_display_gs)
+        st.dataframe(iter_df_gs, use_container_width=True, height=400)
+        
+        # Download button
+        csv_gs = pd.DataFrame(result_gs['iterations']).to_csv(index=False)
+        st.download_button("📥 Download CSV", csv_gs, "gauss_seidel_iterations.csv", "text/csv")
+        
+        # Convergence plot
+        if show_convergence_plot_gs and len(result_gs['iterations']) > 1:
+            st.markdown("---")
+            st.markdown("### 📈 Convergence Analysis")
+            
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+            
+            # Error plot
+            iterations_gs = [it['iteration'] for it in result_gs['iterations']]
+            errors_gs = [it['error'] for it in result_gs['iterations']]
+            residuals_gs = [it['residual'] for it in result_gs['iterations']]
+            
+            ax1.semilogy(iterations_gs, errors_gs, 'g-o', linewidth=2, markersize=6, label='Error ||x^(k+1) - x^(k)||')
+            ax1.axhline(y=tolerance_gs, color='red', linestyle='--', linewidth=1.5, label=f'Tolerance = {tolerance_gs:.1e}')
+            ax1.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Error (log scale)', fontsize=12, fontweight='bold')
+            ax1.set_title('Convergence: Error vs Iteration', fontsize=14, fontweight='bold')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3, which='both')
+            
+            # Residual plot
+            ax2.semilogy(iterations_gs, residuals_gs, 'm-s', linewidth=2, markersize=6, label='Residual ||Ax - b||')
+            ax2.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Residual (log scale)', fontsize=12, fontweight='bold')
+            ax2.set_title('Convergence: Residual vs Iteration', fontsize=14, fontweight='bold')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3, which='both')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Component-wise convergence
+            st.markdown("#### 📊 Component-wise Convergence")
+            
+            fig2, ax3 = plt.subplots(figsize=(12, 6))
+            
+            for i in range(system_size):
+                component_vals = [it[f'x{i+1}'] for it in result_gs['iterations']]
+                ax3.plot(iterations_gs, component_vals, '-o', linewidth=2, markersize=5, label=f'x{i+1}')
+            
+            ax3.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+            ax3.set_ylabel('Value', fontsize=12, fontweight='bold')
+            ax3.set_title('Evolution of Solution Components', fontsize=14, fontweight='bold')
+            ax3.legend(loc='best')
+            ax3.grid(True, alpha=0.3)
+            
+            st.pyplot(fig2)
+    
+    else:
+        # Welcome screen
+        st.info("👈 **Get Started:** Enter your linear system Ax = b in the sidebar and click 'SOLVE SYSTEM'")
+        
+        st.markdown("### 📚 About Gauss-Seidel Iterative Method")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **What is the Gauss-Seidel Method?**
+            
+            The Gauss-Seidel method is an **improved iterative algorithm** for solving linear systems **Ax = b**. 
+            It's a refinement of the Jacobi method that typically **converges faster**.
+            
+            #### Algorithm:
+            Starting from an initial guess x⁽⁰⁾, we iteratively update using the **latest available values**:
+            """)
+            st.latex(r"x_i^{(k+1)} = \frac{1}{a_{ii}} \left( b_i - \sum_{j<i} a_{ij} x_j^{(k+1)} - \sum_{j>i} a_{ij} x_j^{(k)} \right)")
+            
+            st.markdown("""
+            #### Key Features:
+            - ✅ **Faster than Jacobi** (uses latest values)
+            - ✅ **Simple to implement**
+            - ✅ **Lower memory usage**
+            - ⚠️ **Sequential** (cannot parallelize)
+            """)
+        
+            st.markdown("---")
+
 st.caption("Numerical Computing Project | Root Finding & Interpolation Calculator")
