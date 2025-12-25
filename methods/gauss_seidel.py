@@ -88,14 +88,13 @@ def gauss_seidel_method(A, b, x0=None, tol=1e-6, max_iter=100):
             
             x[i] = (b[i] - sum_val) / A[i, i]
         
-        # Calculate relative error: ||x^(k) - x^(k-1)|| / ||x^(k)||
-        numerator = np.linalg.norm(x - x_old, ord=np.inf)
-        denominator = np.linalg.norm(x, ord=np.inf)
-
-        if denominator < 1e-12:
-            error = numerator
+        # Calculate error using formula: |(x1^k - x1^(k-1)) / x2^k|
+        # x1 is the first component (index 0), x2 is the second component (index 1)
+        if abs(x[1]) < 1e-12:
+            # If x2 is too close to zero, use a fallback
+            error = abs(x[0] - x_old[0])
         else:
-            error = numerator / denominator
+            error = abs((x[0] - x_old[0]) / x[1])
 
         residual = np.linalg.norm(np.dot(A, x) - b, ord=np.inf)
         

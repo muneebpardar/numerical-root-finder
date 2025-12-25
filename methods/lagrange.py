@@ -168,17 +168,17 @@ def format_polynomial(coefficients):
             continue
         
         if i == 0:
-            terms.append(f"{coeff:.6f}")
+            terms.append(f"{coeff:.10f}")
         elif i == 1:
             if coeff > 0 and terms:
-                terms.append(f"+ {coeff:.6f}x")
+                terms.append(f"+ {coeff:.10f}x")
             else:
-                terms.append(f"{coeff:.6f}x")
+                terms.append(f"{coeff:.10f}x")
         else:
             if coeff > 0 and terms:
-                terms.append(f"+ {coeff:.6f}x^{i}")
+                terms.append(f"+ {coeff:.10f}x^{i}")
             else:
-                terms.append(f"{coeff:.6f}x^{i}")
+                terms.append(f"{coeff:.10f}x^{i}")
     
     if not terms:
         return "P(x) = 0"
