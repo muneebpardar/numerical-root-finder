@@ -13,7 +13,140 @@ from methods.lagrange import lagrange_interpolation, format_polynomial  # NEW IM
 from methods.divided_difference import divided_difference, format_newton_polynomial
 from methods.jacobi import jacobi_method, check_diagonal_dominance, format_matrix, format_vector, calculate_spectral_radius
 from methods.gauss_seidel import gauss_seidel_method, calculate_spectral_radius_gs
+from methods.newton_differentiation import (
+    newton_forward_derivative, newton_backward_derivative,
+    calculate_forward_differences, calculate_backward_differences,
+    validate_equally_spaced,
+    # Legacy functions for backward compatibility
+    newton_forward_first_derivative, newton_forward_second_derivative, newton_forward_third_derivative,
+    newton_backward_first_derivative, newton_backward_second_derivative, newton_backward_third_derivative
+)
+from methods.numerical_integration import numerical_integration
 from utils.validators import validate_function, validate_interval, preprocess_function
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def format_max_precision(value):
+    """
+    Format a number to maximum precision without unnecessary rounding.
+    Uses repr() for floats to show full precision, or converts to string.
+    """
+    if isinstance(value, (int, float)):
+        # Use repr() for maximum precision, but handle very small/large numbers
+        if isinstance(value, float):
+            # For floats, use repr() which shows maximum precision
+            # This will show scientific notation for very small/large numbers
+            formatted = repr(value)
+            # Remove unnecessary '0' at the end if it's not scientific notation
+            if 'e' not in formatted.lower() and formatted.endswith('0'):
+                # Keep the decimal point but remove trailing zeros after decimal
+                if '.' in formatted:
+                    formatted = formatted.rstrip('0').rstrip('.')
+            return formatted
+        else:
+            return str(value)
+    elif isinstance(value, complex):
+        return repr(value)
+    else:
+        return str(value)
+
+def format_float_max(value):
+    """Format float to maximum precision (15-17 significant digits)"""
+    if isinstance(value, float):
+        # Use high precision format, but let Python decide the best representation
+        # Format with 15 decimal places (Python float precision)
+        formatted = f"{value:.15g}"
+        # If it's a whole number, show it as integer
+        if '.' in formatted and formatted.replace('.', '').replace('-', '').isdigit():
+            if float(formatted) == int(float(formatted)):
+                return str(int(float(formatted)))
+        return formatted
+    return str(value)
+
+def show_derivative_info(func_str, x_point=None):
+    """
+    Helper function to display derivative information for any function.
+    Can be called from any method to show differentiation details.
+    
+    Args:
+        func_str: String representation of the function
+        x_point: Optional point at which to evaluate (default None)
+    """
+    try:
+        from sympy import symbols, sympify, diff, latex, simplify
+        from utils.validators import preprocess_function
+        
+        x_sym = symbols('x')
+        processed = preprocess_function(func_str)
+        expr = sympify(processed)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Function:**")
+            st.latex(f"f(x) = {latex(expr)}")
+        
+        with col2:
+            f_prime_expr = diff(expr, x_sym)
+            simplified = simplify(f_prime_expr)
+            st.markdown("**Derivative:**")
+            st.latex(f"f'(x) = {latex(simplified)}")
+        
+        if x_point is not None:
+            st.markdown(f"**At x = {x_point:.6f}:**")
+            
+            f_val = float(expr.subs(x_sym, x_point))
+            fprime_val = float(simplified.subs(x_sym, x_point))
+            
+            col1, col2 = st.columns(2)
+            col1.metric("f(x)", f"{f_val:.6f}")
+            col2.metric("f'(x)", f"{fprime_val:.6f}")
+        
+        return True
+    except:
+        return False
+
+
+def show_derivative_evaluation_table(f, f_prime, func_str, x_values, title="Derivative Evaluation"):
+    """
+    Show a table of function and derivative values at specific points.
+    
+    Args:
+        f: Function
+        f_prime: Derivative function
+        func_str: String representation
+        x_values: List of x values to evaluate
+        title: Title for the section
+    """
+    st.markdown(f"#### {title}")
+    
+    eval_data = []
+    for x_val in x_values:
+        try:
+            f_val = f(x_val)
+            fp_val = f_prime(x_val)
+            
+            # Determine behavior
+            if fp_val > 0:
+                behavior = "↗️ Increasing"
+            elif fp_val < 0:
+                behavior = "↘️ Decreasing"
+            else:
+                behavior = "➡️ Stationary"
+            
+            eval_data.append({
+                'x': f"{x_val:.6f}",
+                'f(x)': f"{f_val:.6f}",
+                "f'(x)": f"{fp_val:.6f}",
+                'Behavior': behavior
+            })
+        except:
+            pass
+    
+    st.dataframe(pd.DataFrame(eval_data), use_container_width=True, hide_index=True)
+
 
 st.set_page_config(
     page_title="Numerical Methods Calculator",
@@ -29,7 +162,26 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* Force header visibility in both light and dark mode */
+    /* ============================================================================
+       MODERN UI/UX ENHANCEMENTS - INDUSTRY STANDARD DESIGN
+       ============================================================================ */
+    
+    /* Global Typography & Spacing */
+    * {
+        font-family: 'Inter', 'Segoe UI', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Main Container */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1400px;
+    }
+    
+    /* ============================================================================
+       HEADER & TITLE ENHANCEMENTS
+       ============================================================================ */
+    
     .force-header h1 {
         color: white !important;
         -webkit-text-fill-color: white !important;
@@ -38,224 +190,612 @@ st.markdown("""
         display: block !important;
         position: relative;
         z-index: 9999;
+        font-family: 'Inter', sans-serif;
+        letter-spacing: -0.5px;
     }
     
-    /* Function input styling - works in both modes */
-    .stTextArea textarea {
-        font-family: 'Courier New', monospace;
-        font-size: 18px !important;
+    h1, h2, h3 {
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+    }
+    
+    h2 {
+        font-size: 1.75rem;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        color: #1a1a1a;
+    }
+    
+    [data-theme="dark"] h2 {
+        color: #e0e0e0;
+    }
+    
+    h3 {
+        font-size: 1.4rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
         font-weight: 600;
-        letter-spacing: 0.5px;
-        border: 2px solid #4CAF50;
-        border-radius: 8px;
-        padding: 10px;
     }
     
-    /* Light mode function input */
+    /* ============================================================================
+       FUNCTION INPUT - PREMIUM STYLING
+       ============================================================================ */
+    
+    .stTextArea textarea {
+        font-family: 'Fira Code', 'Courier New', 'Consolas', monospace;
+        font-size: 16px !important;
+        font-weight: 500;
+        letter-spacing: 0.3px;
+        border: 2px solid #667eea;
+        border-radius: 12px;
+        padding: 14px 16px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    }
+    
+    .stTextArea textarea:focus {
+        border-color: #764ba2;
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.25);
+        outline: none;
+        transform: translateY(-1px);
+    }
+    
     [data-theme="light"] .stTextArea textarea {
-        color: #1f4788;
-        background-color: #f8f9fa;
+        color: #1a1a1a;
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
     }
     
-    /* Dark mode function input */
     [data-theme="dark"] .stTextArea textarea {
         color: #e0e0e0;
-        background-color: #2b2b2b;
+        background: linear-gradient(135deg, #2b2b2b 0%, #1e1e1e 100%);
+        border-color: #8b9eea;
     }
     
-    /* Button styling */
-    .stButton button {
+    /* ============================================================================
+       BUTTON ENHANCEMENTS - MODERN & INTERACTIVE
+       ============================================================================ */
+    
+    .stButton > button {
         font-weight: 600;
-        border-radius: 8px;
-        transition: all 0.3s ease;
+        border-radius: 12px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        font-family: 'Inter', sans-serif;
+        letter-spacing: 0.3px;
+        border: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
     
-    .stButton button:hover {
+    .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
     }
     
-    /* Primary button (Calculate) */
-    .stButton button[kind="primary"] {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    .stButton > button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Primary Button - Premium Gradient */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white !important;
         font-size: 16px;
         font-weight: 700;
-        border: none;
+        padding: 12px 24px;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     }
     
-    /* Title styling - responsive to theme */
-    h1 {
-        text-align: center;
-        padding: 1rem 0;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800;
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
     }
     
-    /* Dark mode title fix */
-    [data-theme="dark"] h1 {
-        background: linear-gradient(90deg, #8b9eea 0%, #9b6bc2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+    /* Secondary Buttons */
+    .stButton > button:not([kind="primary"]) {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        color: #495057;
+        border: 1px solid #dee2e6;
     }
     
-    /* Metric cards - theme aware */
+    [data-theme="dark"] .stButton > button:not([kind="primary"]) {
+        background: linear-gradient(135deg, #2b2b2b 0%, #1e1e1e 100%);
+        color: #e0e0e0;
+        border: 1px solid #404040;
+    }
+    
+    /* Keypad Buttons */
+    .stButton > button[data-testid*="key"] {
+        font-size: 14px;
+        padding: 10px;
+        min-height: 45px;
+    }
+    
+    /* ============================================================================
+       METRIC CARDS - PREMIUM DESIGN
+       ============================================================================ */
+    
     [data-testid="stMetricValue"] {
-        font-size: 28px;
-        font-weight: 700;
+        font-size: 32px;
+        font-weight: 800;
+        font-family: 'Inter', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    
+    [data-theme="dark"] [data-testid="stMetricValue"] {
+        background: linear-gradient(135deg, #8b9eea 0%, #9b6bc2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
     
     [data-testid="stMetricLabel"] {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
     }
     
-    /* Table styling - works in both themes */
+    [data-theme="dark"] [data-testid="stMetricLabel"] {
+        color: #adb5bd;
+    }
+    
+    [data-testid="stMetricContainer"] {
+        background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(248,249,250,0.9) 100%);
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s ease;
+    }
+    
+    [data-testid="stMetricContainer"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    }
+    
+    [data-theme="dark"] [data-testid="stMetricContainer"] {
+        background: linear-gradient(135deg, rgba(43, 43, 43, 0.9) 0%, rgba(30, 30, 30, 0.9) 100%);
+        border-color: rgba(139, 158, 234, 0.3);
+    }
+    
+    /* ============================================================================
+       TABLE ENHANCEMENTS - MODERN DATA DISPLAY
+       ============================================================================ */
+    
     .dataframe {
         font-size: 13px;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border: 1px solid rgba(102, 126, 234, 0.1);
     }
     
     .dataframe thead tr th {
-        background-color: #667eea !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         color: white !important;
         font-weight: 700 !important;
-        font-size: 14px !important;
+        font-size: 13px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 14px 12px !important;
+        border: none !important;
     }
     
-    /* Sidebar styling - theme aware */
+    .dataframe tbody tr {
+        transition: all 0.2s ease;
+    }
+    
+    .dataframe tbody tr:hover {
+        background-color: rgba(102, 126, 234, 0.05) !important;
+        transform: scale(1.01);
+    }
+    
+    .dataframe tbody tr td {
+        padding: 12px !important;
+        border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+    }
+    
+    [data-theme="dark"] .dataframe {
+        background-color: #1e1e1e;
+        color: #e0e0e0;
+        border-color: rgba(139, 158, 234, 0.2);
+    }
+    
+    [data-theme="dark"] .dataframe tbody tr:hover {
+        background-color: rgba(139, 158, 234, 0.1) !important;
+    }
+    
+    /* ============================================================================
+       SIDEBAR - PREMIUM DESIGN
+       ============================================================================ */
+    
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+        background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+        border-right: 2px solid rgba(102, 126, 234, 0.1);
     }
     
     [data-theme="dark"] [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #1e1e1e 0%, #2b2b2b 100%);
+        border-right-color: rgba(139, 158, 234, 0.2);
     }
     
-    /* Success boxes - visible in dark mode */
-    .stSuccess {
-        border-left: 5px solid #28a745;
-        padding: 15px;
-        border-radius: 5px;
+    [data-testid="stSidebar"] [class*="header"] {
+        font-size: 1.5rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        padding: 1rem 0;
+        margin-bottom: 1rem;
     }
     
-    [data-theme="light"] .stSuccess {
-        background-color: #d4edda;
-        color: #155724;
-    }
-    
-    [data-theme="dark"] .stSuccess {
-        background-color: #1e4d2b;
-        color: #a8e6a3;
-    }
-    
-    /* Error boxes - visible in dark mode */
-    .stError {
-        border-left: 5px solid #dc3545;
-        padding: 15px;
-        border-radius: 5px;
-    }
-    
-    [data-theme="light"] .stError {
-        background-color: #f8d7da;
-        color: #721c24;
-    }
-    
-    [data-theme="dark"] .stError {
-        background-color: #4d1f1f;
-        color: #f8a1a1;
-    }
-    
-    /* Info boxes - visible in dark mode */
-    .stInfo {
-        border-left: 5px solid #0c5460;
-        padding: 15px;
-        border-radius: 5px;
-    }
-    
-    [data-theme="light"] .stInfo {
-        background-color: #d1ecf1;
-        color: #0c5460;
-    }
-    
-    [data-theme="dark"] .stInfo {
-        background-color: #1a3d42;
-        color: #a8d8e0;
-    }
-    
-    /* Warning boxes - visible in dark mode */
-    .stWarning {
-        border-left: 5px solid #ffc107;
-        padding: 15px;
-        border-radius: 5px;
-    }
-    
-    [data-theme="light"] .stWarning {
-        background-color: #fff3cd;
-        color: #856404;
-    }
-    
-    [data-theme="dark"] .stWarning {
-        background-color: #4d4020;
-        color: #ffe599;
-    }
-    
-    /* Expander styling - theme aware */
-    .streamlit-expanderHeader {
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    
-    [data-theme="light"] .streamlit-expanderHeader {
-        background-color: #f0f2f6;
-    }
-    
-    [data-theme="dark"] .streamlit-expanderHeader {
-        background-color: #2b2b2b;
-    }
-    
-    /* Remove extra padding */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    
-    /* Enhanced Radio buttons - theme aware */
+    /* Sidebar Radio Buttons */
     .stRadio > div {
-        padding: 15px;
-        border-radius: 10px;
-        border: 2px solid #667eea;
+        padding: 12px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(248,249,250,0.9) 100%);
+        border: 2px solid rgba(102, 126, 234, 0.2);
+        transition: all 0.3s ease;
     }
     
-    [data-theme="light"] .stRadio > div {
-        background: white;
+    .stRadio > div:hover {
+        border-color: rgba(102, 126, 234, 0.5);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
     }
     
     [data-theme="dark"] .stRadio > div {
-        background: #2b2b2b;
+        background: linear-gradient(135deg, rgba(43, 43, 43, 0.9) 0%, rgba(30, 30, 30, 0.9) 100%);
+        border-color: rgba(139, 158, 234, 0.3);
     }
     
-    /* Download button enhancement */
-    .stDownloadButton button {
+    /* Sidebar Number Inputs */
+    .stNumberInput input {
+        border-radius: 10px;
+        border: 2px solid rgba(102, 126, 234, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .stNumberInput input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* Sidebar Text Inputs */
+    .stTextInput input {
+        border-radius: 10px;
+        border: 2px solid rgba(102, 126, 234, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .stTextInput input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* ============================================================================
+       ALERT BOXES - MODERN DESIGN
+       ============================================================================ */
+    
+    .stSuccess {
+        border-left: 5px solid #28a745;
+        padding: 18px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.15);
+        margin: 1rem 0;
+    }
+    
+    [data-theme="light"] .stSuccess {
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        color: #155724;
+        border-left-color: #28a745;
+    }
+    
+    [data-theme="dark"] .stSuccess {
+        background: linear-gradient(135deg, #1e4d2b 0%, #2d5a3d 100%);
+        color: #a8e6a3;
+        border-left-color: #4caf50;
+    }
+    
+    .stError {
+        border-left: 5px solid #dc3545;
+        padding: 18px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(220, 53, 69, 0.15);
+        margin: 1rem 0;
+    }
+    
+    [data-theme="light"] .stError {
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+        color: #721c24;
+        border-left-color: #dc3545;
+    }
+    
+    [data-theme="dark"] .stError {
+        background: linear-gradient(135deg, #4d1f1f 0%, #5a2525 100%);
+        color: #f8a1a1;
+        border-left-color: #ff5252;
+    }
+    
+    .stInfo {
+        border-left: 5px solid #17a2b8;
+        padding: 18px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(23, 162, 184, 0.15);
+        margin: 1rem 0;
+    }
+    
+    [data-theme="light"] .stInfo {
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+        color: #0c5460;
+        border-left-color: #17a2b8;
+    }
+    
+    [data-theme="dark"] .stInfo {
+        background: linear-gradient(135deg, #1a3d42 0%, #234a50 100%);
+        color: #a8d8e0;
+        border-left-color: #26c6da;
+    }
+    
+    .stWarning {
+        border-left: 5px solid #ffc107;
+        padding: 18px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(255, 193, 7, 0.15);
+        margin: 1rem 0;
+    }
+    
+    [data-theme="light"] .stWarning {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        color: #856404;
+        border-left-color: #ffc107;
+    }
+    
+    [data-theme="dark"] .stWarning {
+        background: linear-gradient(135deg, #4d4020 0%, #5a4a25 100%);
+        color: #ffe599;
+        border-left-color: #ffd54f;
+    }
+    
+    /* ============================================================================
+       EXPANDER - MODERN ACCORDION DESIGN
+       ============================================================================ */
+    
+    .streamlit-expanderHeader {
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 14px 16px;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        transition: all 0.3s ease;
+        margin-bottom: 8px;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+        border-color: rgba(102, 126, 234, 0.4);
+        transform: translateX(4px);
+    }
+    
+    [data-theme="light"] .streamlit-expanderHeader {
+        color: #1a1a1a;
+    }
+    
+    [data-theme="dark"] .streamlit-expanderHeader {
+        background: linear-gradient(135deg, rgba(43, 43, 43, 0.8) 0%, rgba(30, 30, 30, 0.8) 100%);
+        border-color: rgba(139, 158, 234, 0.3);
+        color: #e0e0e0;
+    }
+    
+    .streamlit-expanderContent {
+        padding: 20px;
+        border-radius: 0 0 12px 12px;
+        background: rgba(248, 249, 250, 0.5);
+        margin-top: -8px;
+        border: 1px solid rgba(102, 126, 234, 0.1);
+        border-top: none;
+    }
+    
+    [data-theme="dark"] .streamlit-expanderContent {
+        background: rgba(30, 30, 30, 0.5);
+        border-color: rgba(139, 158, 234, 0.2);
+    }
+    
+    /* ============================================================================
+       DOWNLOAD BUTTON - PREMIUM STYLING
+       ============================================================================ */
+    
+    .stDownloadButton > button {
         background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
         color: white !important;
+        font-weight: 600;
+        border-radius: 12px;
+        padding: 10px 20px;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        transition: all 0.3s ease;
     }
     
-    /* Code blocks - dark mode fix */
+    .stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #20c997 0%, #28a745 100%) !important;
+        box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        transform: translateY(-2px);
+    }
+    
+    /* ============================================================================
+       CODE BLOCKS - ENHANCED STYLING
+       ============================================================================ */
+    
+    code {
+        font-family: 'Fira Code', 'Courier New', 'Consolas', monospace;
+        font-size: 14px;
+        padding: 2px 6px;
+        border-radius: 6px;
+        background: rgba(102, 126, 234, 0.1);
+    }
+    
     [data-theme="dark"] code {
         color: #e0e0e0 !important;
-        background-color: #2b2b2b !important;
+        background: rgba(139, 158, 234, 0.15) !important;
     }
     
-    /* LaTeX in dark mode */
+    pre {
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+    
+    [data-theme="dark"] pre {
+        background-color: #1e1e1e !important;
+        border-color: rgba(139, 158, 234, 0.3);
+    }
+    
+    /* ============================================================================
+       LATEX & MATH - ENHANCED DISPLAY
+       ============================================================================ */
+    
+    .katex {
+        font-size: 1.1em;
+    }
+    
     [data-theme="dark"] .katex {
         color: #e0e0e0 !important;
     }
     
-    /* Dataframe in dark mode */
-    [data-theme="dark"] .dataframe {
-        color: #e0e0e0;
+    /* ============================================================================
+       CHECKBOX & RADIO - MODERN STYLING
+       ============================================================================ */
+    
+    .stCheckbox label {
+        font-weight: 500;
+        cursor: pointer;
+    }
+    
+    /* ============================================================================
+       SECTION DIVIDERS - ELEGANT DESIGN
+       ============================================================================ */
+    
+    hr {
+        border: none;
+        height: 2px;
+        background: linear-gradient(90deg, transparent 0%, rgba(102, 126, 234, 0.3) 50%, transparent 100%);
+        margin: 2rem 0;
+    }
+    
+    /* ============================================================================
+       SPINNER & LOADING - SMOOTH ANIMATIONS
+       ============================================================================ */
+    
+    .stSpinner > div {
+        border-color: #667eea;
+    }
+    
+    /* ============================================================================
+       CARD-BASED LAYOUTS
+       ============================================================================ */
+    
+    .metric-card {
+        background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,249,250,0.95) 100%);
+        padding: 24px;
+        border-radius: 16px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        margin: 1rem 0;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        border-color: rgba(102, 126, 234, 0.4);
+    }
+    
+    [data-theme="dark"] .metric-card {
+        background: linear-gradient(135deg, rgba(43, 43, 43, 0.95) 0%, rgba(30, 30, 30, 0.95) 100%);
+        border-color: rgba(139, 158, 234, 0.3);
+    }
+    
+    /* ============================================================================
+       SMOOTH SCROLLING
+       ============================================================================ */
+    
+    html {
+        scroll-behavior: smooth;
+    }
+    
+    /* ============================================================================
+       SELECTBOX & MULTISELECT - ENHANCED
+       ============================================================================ */
+    
+    .stSelectbox > div > div {
+        border-radius: 10px;
+        border: 2px solid rgba(102, 126, 234, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .stSelectbox > div > div:focus-within {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* ============================================================================
+       KEYPAD BUTTONS - GRID LAYOUT ENHANCEMENT
+       ============================================================================ */
+    
+    .stButton > button {
+        min-height: 48px;
+        font-size: 15px;
+    }
+    
+    /* ============================================================================
+       RESPONSIVE DESIGN
+       ============================================================================ */
+    
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding: 1rem;
+        }
+        
+        h1 {
+            font-size: 2rem;
+        }
+        
+        h2 {
+            font-size: 1.5rem;
+        }
+    }
+    
+    /* ============================================================================
+       ANIMATIONS
+       ============================================================================ */
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .stDataFrame {
+        animation: fadeIn 0.5s ease-out;
+    }
+    
+    /* ============================================================================
+       FOCUS STATES - ACCESSIBILITY
+       ============================================================================ */
+    
+    *:focus-visible {
+        outline: 3px solid rgba(102, 126, 234, 0.5);
+        outline-offset: 2px;
+        border-radius: 4px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -460,16 +1000,40 @@ st.markdown("---")
 
     
 # Sidebar
-st.sidebar.header("⚙️ Configuration")
+# Premium Sidebar Design
+st.sidebar.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem 1rem;
+        border-radius: 16px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+        text-align: center;
+    ">
+        <h2 style="
+            color: white;
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        ">⚙️ Configuration</h2>
+    </div>
+""", unsafe_allow_html=True)
 
 problem_type = st.sidebar.radio(
     "**📚 Select Problem Type:**",
     ["🎯 Root Finding", "📊 Lagrange Interpolation", "🔢 Divided Difference Interpolation", 
-     "🔧 Linear Systems (Jacobi)", "⚡ Linear Systems (Gauss-Seidel)"],
+     "🔧 Linear Systems (Jacobi)", "⚡ Linear Systems (Gauss-Seidel)", "📈 Numerical Differentiation", "📐 Numerical Integration"],
     key="problem_type"
 )
 
-st.sidebar.markdown("---")
+st.sidebar.markdown("""
+    <div style="
+        height: 2px;
+        background: linear-gradient(90deg, transparent 0%, rgba(102, 126, 234, 0.3) 50%, transparent 100%);
+        margin: 1.5rem 0;
+    "></div>
+""", unsafe_allow_html=True)
 
 # ============================================================================
 # ROOT FINDING SECTION
@@ -498,14 +1062,27 @@ if problem_type == "🎯 Root Finding":
     # Function input
     st.sidebar.markdown("### 🔢 Function Builder")
 
-    if 'func_input' not in st.session_state:
-        st.session_state.func_input = "x**3 - x - 2"
-
+    # Set default function based on method
+    # Check if method changed or if func_input is empty
+    if 'last_method' not in st.session_state:
+        st.session_state.last_method = method
+    
+    if st.session_state.last_method != method or 'func_input' not in st.session_state or st.session_state.func_input == "":
+        if method == "Fixed Point Method":
+            st.session_state.func_input = "(3*x**2 + 3)**(1/4)"
+        else:
+            st.session_state.func_input = "x**3 - x - 2"
+        st.session_state.last_method = method
+    
+    # Change label based on method
+    func_label = "Enter g(x):" if method == "Fixed Point Method" else "Enter f(x):"
+    func_help = "Build your iteration function g(x) using the keypad below" if method == "Fixed Point Method" else "Build your function using the keypad below"
+    
     func_str = st.sidebar.text_area(
-        "Enter f(x):",
+        func_label,
         value=st.session_state.func_input,
         height=100,
-        help="Build your function using the keypad below",
+        help=func_help,
         key="function_input"
     )
 
@@ -558,11 +1135,6 @@ if problem_type == "🎯 Root Finding":
     if col4.button("π", use_container_width=True, key="pi"):
         st.session_state.func_input += "pi"
         st.rerun()
-
-    # ============================================================================
-    # ADD THIS SECTION TO YOUR APP.PY AFTER THE REGULAR TRIG FUNCTIONS
-    # Replace the "Advanced" section with this enhanced version
-    # ============================================================================
 
     # Advanced functions (including inverse trig)
     st.sidebar.markdown("##### Advanced")
@@ -680,7 +1252,7 @@ if problem_type == "🎯 Root Finding":
     else:
         st.sidebar.success("✅ Valid function")
         
-        # ADD THIS NEW SECTION - Shows preprocessed function
+        # Shows preprocessed function
         with st.sidebar.expander("🔍 View Processed Function", expanded=False):
             from utils.validators import preprocess_function
             processed = preprocess_function(func_str)
@@ -727,10 +1299,10 @@ if problem_type == "🎯 Root Finding":
 
     # Fixed Point
     elif method == "Fixed Point Method":
-        # Interval input for convergence check / plotting
+        # Only show interval and initial guess
         col1, col2 = st.sidebar.columns(2)
-        a_str = col1.text_input("a (left, for check/plot):", value="0")
-        b_str = col2.text_input("b (right, for check/plot):", value="2*pi")
+        a_str = col1.text_input("a (left endpoint):", value="1")
+        b_str = col2.text_input("b (right endpoint):", value="2")
         
         try:
             a = float(sympify(a_str))
@@ -742,21 +1314,7 @@ if problem_type == "🎯 Root Finding":
         # Initial guess
         x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
         
-        # g(x) input
-        st.sidebar.info("💡 Transform f(x)=0 to x=g(x). Example: x³-x-2 → g(x)=(x+2)^(1/3)")
-        g_str = st.sidebar.text_input(
-            "g(x) function:", 
-            value="(x + 2)**(1/3)", 
-            help="Example: For x³-x-2=0 → x³=x+2 → x=(x+2)^(1/3)"
-        )
-        
-        # Validate g(x)
-        is_valid_g, g, error_msg_g = validate_function(g_str)
-        if not is_valid_g:
-            st.sidebar.error(f"❌ Invalid g(x)")
-            st.sidebar.warning(error_msg_g)
-        else:
-            st.sidebar.success("✅ Valid g(x)")
+        st.sidebar.info("💡 Enter **g(x)** directly (the iteration function where x = g(x))")
 
     # Compare All Methods
     elif method == "🔬 Compare All Methods":
@@ -941,32 +1499,364 @@ if problem_type == "🎯 Root Finding":
                     result = secant(f, x0, x1, tol=tolerance, max_iter=max_iter)
             
             elif method == "Fixed Point Method":
-                if not is_valid_g:
-                    st.error(f"❌ Invalid g(x): {error_msg_g}")
-                    st.stop()
+                # Use input function directly as g(x) (iteration function)
+                st.markdown("---")
+                st.markdown("### 🔄 Fixed Point Iteration Function")
                 
-                with st.spinner("Calculating..."):
-                    result = fixed_point(g, x0, tol=tolerance, max_iter=max_iter)
+                with st.expander("🔧 **Iteration Function g(x)**", expanded=True):
+                    st.markdown("Your iteration function:")
+                    st.code(f"g(x) = {func_str}", language="python")
+                    st.info("💡 The function you enter is treated as **g(x)** directly, where **x = g(x)**")
+                    
+                    try:
+                        from sympy import symbols, sympify, simplify, latex, lambdify, diff
+                        from utils.validators import preprocess_function
+                        
+                        x_sym = symbols('x')
+                        processed = preprocess_function(func_str)
+                        g_expr = sympify(processed)
+                        
+                        st.markdown("**Mathematical form:**")
+                        st.latex(f"g(x) = {latex(g_expr)}")
+                        
+                        # Compute g'(x)
+                        g_prime_expr = diff(g_expr, x_sym)
+                        
+                        st.markdown("**Derivative:**")
+                        st.latex(f"g'(x) = {latex(simplify(g_prime_expr))}")
+                        
+                        # Create callable functions
+                        g = lambdify(x_sym, g_expr, 'numpy')
+                        g_prime = lambdify(x_sym, g_prime_expr, 'numpy')
+                        
+                        # Check convergence ONLY at endpoints (a and b)
+                        from methods.fixed_point import check_convergence_condition
+                        conv_info = check_convergence_condition(g_prime, a, b)
+                        
+                        best_k = conv_info.get('k', conv_info['max_derivative'])
+                        
+                        st.markdown("---")
+                        st.markdown("### 📊 Convergence Check")
+                        st.markdown(f"**Checking convergence at endpoints only:**")
+                        st.markdown(f"- At **x = a = {a}**: |g'({a})| = {abs(float(g_prime(a))):.6f}")
+                        st.markdown(f"- At **x = b = {b}**: |g'({b})| = {abs(float(g_prime(b))):.6f}")
+                        st.markdown(f"- **k = max(|g'(a)|, |g'(b)|) = {best_k:.6f}**")
+                        
+                        if conv_info['converges']:
+                            st.success(f"✅ **Convergence guaranteed!** k = {best_k:.6f} < 1")
+                        else:
+                            st.error(f"❌ **May not converge!** k = {best_k:.6f} ≥ 1")
+                            st.warning("⚠️ The fixed point method requires |g'(x)| < 1 for convergence. Try a different function or interval.")
+                        
+                        # Create f(x) = x - g(x) for the iteration table (to show residual)
+                        # f(x) = 0 when x = g(x), which is the fixed point condition
+                        f_expr = x_sym - g_expr
+                        f = lambdify(x_sym, f_expr, 'numpy')
+                        
+                        # Create f(x) = x - g(x) for the iteration table (to show residual)
+                        # f(x) = 0 when x = g(x), which is the fixed point condition
+                        f_expr = x_sym - g_expr
+                        f = lambdify(x_sym, f_expr, 'numpy')
+                        
+                        # Store for later use in derivative display
+                        st.session_state.fixed_point_g_expr = g_expr
+                        st.session_state.fixed_point_g_prime_expr = g_prime_expr
+                        st.session_state.fixed_point_best_k = best_k
+                        
+                    except Exception as e:
+                        st.error(f"Error processing function: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                        st.stop()
+                
+                st.markdown("---")
+                
+                # Convergence Test Plot
+                st.markdown("### 📊 Convergence Test: Plotting |g'(x)| over [a, b]")
+                
+                with st.expander("📈 **Visual Convergence Check**", expanded=True):
+                    fig_conv, ax_conv = plt.subplots(figsize=(12, 6))
+                    
+                    x_plot = np.linspace(a, b, 500)
+                    g_prime_vals = []
+                    
+                    for x_val in x_plot:
+                        try:
+                            g_prime_vals.append(abs(float(g_prime(x_val))))
+                        except:
+                            g_prime_vals.append(np.nan)
+                    
+                    ax_conv.plot(x_plot, g_prime_vals, 'b-', linewidth=2.5, label="|g'(x)|")
+                    ax_conv.axhline(y=1, color='red', linestyle='--', linewidth=2, label='Convergence threshold (k=1)')
+                    ax_conv.axhline(y=best_k, color='green', linestyle=':', linewidth=2, label=f'Max |g\'(x)| = {best_k:.4f}')
+                    ax_conv.axvline(x=x0, color='orange', linestyle='-.', linewidth=2, label=f'Initial guess x₀ = {x0:.4f}')
+                    
+                    ax_conv.fill_between(x_plot, 0, 1, alpha=0.2, color='green', label='Convergence region')
+                    ax_conv.set_xlabel('x', fontsize=13, fontweight='bold')
+                    ax_conv.set_ylabel("|g'(x)|", fontsize=13, fontweight='bold')
+                    ax_conv.set_title("Convergence Condition: |g'(x)| < 1 (checked only at endpoints a and b)", fontsize=15, fontweight='bold')
+                    ax_conv.legend(loc='best')
+                    ax_conv.grid(True, alpha=0.3)
+                    ax_conv.set_ylim([0, min(2, max([v for v in g_prime_vals if not np.isnan(v)]) * 1.1)])
+                    
+                    st.pyplot(fig_conv)
+                    
+                    if best_k < 1:
+                        st.success(f"✅ **Convergence guaranteed!** k = {best_k:.6f} < 1 (checked at endpoints only)")
+                    else:
+                        st.error(f"❌ **May not converge!** k = {best_k:.6f} ≥ 1 (checked at endpoints only)")
+                
+                st.markdown("---")
+                
+                # Calculate max iterations using formula
+                st.markdown("### 🔢 Maximum Iterations Estimate")
+                
+                with st.expander("📐 **Formula Calculation**", expanded=True):
+                    st.markdown("Using the formula:")
+                    st.latex(r"n > \frac{\ln(\text{Error}) - \ln[\max(x_0 - a, b - x_0)]}{\ln(k)}")
+                    
+                    st.markdown("Where:")
+                    st.markdown(f"- **Error** (error tolerance) = {tolerance:.1e}")
+                    st.markdown(f"- **x₀** (initial guess / first interval) = {x0}")
+                    st.markdown(f"- **a** (first interval endpoint) = {a}")
+                    st.markdown(f"- **b** (last interval endpoint) = {b}")
+                    st.markdown(f"- **k** (highest value found after convergence test at endpoints) = {best_k:.6f}")
+                    
+                    max_distance = max(abs(x0 - a), abs(b - x0))
+                    st.markdown(f"- **max(|x₀-a|, |b-x₀|)** = max({abs(x0-a):.6f}, {abs(b-x0):.6f}) = {max_distance:.6f}")
+                    
+                    from methods.fixed_point import calculate_max_iterations_formula
+                    estimated_iters = calculate_max_iterations_formula(tolerance, x0, a, b, best_k)
+                    
+                    if estimated_iters is not None:
+                        st.markdown("**Calculation:**")
+                        numerator_val = np.log(tolerance) - np.log(max_distance)
+                        denominator_val = np.log(best_k)
+                        result_val = numerator_val / denominator_val
+                        st.code(f"""
+                                numerator = ln({tolerance:.1e}) - ln({max_distance:.6f}) = {np.log(tolerance):.6f} - {np.log(max_distance):.6f} = {numerator_val:.6f}
+                                denominator = ln({best_k:.6f}) = {denominator_val:.6f}
+                                n > {numerator_val:.6f} / {denominator_val:.6f} = {result_val:.6f}
+                                Therefore: n ≥ {estimated_iters}
+                        """)
+                        st.success(f"✅ **Estimated maximum iterations needed: n ≥ {estimated_iters}**")
+                    else:
+                        st.warning("⚠️ Could not estimate iterations (k ≥ 1 or invalid parameters)")
+                
+                st.markdown("---")
+                
+                # Run Fixed Point Method
+                with st.spinner("Running Fixed Point iteration..."):
+                    from methods.fixed_point import fixed_point
+                    result = fixed_point(f, g, x0, tol=tolerance, max_iter=max_iter)
             
             # Display results
             if result['success']:
                 st.success(f"✅ {result['message']}")
                 
-                # ============================================================================
-                # COMPLETE DIFFERENTIATION INTEGRATION FOR APP.PY
-                # Insert these code blocks in the appropriate sections of your app.py
-                # ============================================================================
-
-                # ============================================================================
-                # PART 1: NEWTON-RAPHSON DETAILED DIFFERENTIATION
-                # Insert this AFTER the success message and BEFORE the metrics display
-                # (Around line 850-900 in your current app.py)
-                # ============================================================================
-
-                # After: if result['success']:
-                #        st.success(f"✅ {result['message']}")
-                # ADD THIS:
-
+                # Add detailed derivative calculation for Fixed Point Method (similar to Newton)
+                if method == "Fixed Point Method":
+                    st.markdown("---")
+                    st.markdown("### 🧮 Detailed Derivative Calculation for g(x)")
+                    
+                    with st.expander("📐 **Step-by-Step Differentiation of g(x)**", expanded=True):
+                        try:
+                            from sympy import symbols, sympify, diff, latex, simplify, expand, Derivative
+                            from sympy import sin, cos, tan, exp, log, sqrt, asin, acos, atan, Abs
+                            from utils.validators import preprocess_function
+                            
+                            x_sym = symbols('x')
+                            
+                            # Get stored expressions
+                            best_g_expr = st.session_state.get('fixed_point_g_expr', None)
+                            best_g_prime_expr = st.session_state.get('fixed_point_g_prime_expr', None)
+                            
+                            if best_g_expr is None:
+                                st.warning("Could not retrieve g(x) expression for detailed display.")
+                            else:
+                                st.markdown("#### Your Iteration Function:")
+                                st.code(f"g(x) = {best_g_expr}", language="python")
+                                st.latex(f"g(x) = {latex(best_g_expr)}")
+                                
+                                st.markdown("---")
+                                
+                                # Step 1: Show parsed function
+                                st.markdown("#### Step 1: Function in Mathematical Form")
+                                st.latex(f"g(x) = {latex(best_g_expr)}")
+                                
+                                st.markdown("---")
+                                
+                                # Step 2: Identify differentiation rules
+                                st.markdown("#### Step 2: Identify Applicable Differentiation Rules")
+                                
+                                expr_str = str(best_g_expr)
+                                rules_used = []
+                                
+                                # Detect which rules apply
+                                if any(op in expr_str for op in ['**', 'Pow']):
+                                    rules_used.append(("Power Rule", r"\frac{d}{dx}[x^n] = n \cdot x^{n-1}"))
+                                if 'sin' in expr_str and 'asin' not in expr_str:
+                                    rules_used.append(("Sine Rule", r"\frac{d}{dx}[\sin(x)] = \cos(x)"))
+                                if 'cos' in expr_str and 'acos' not in expr_str:
+                                    rules_used.append(("Cosine Rule", r"\frac{d}{dx}[\cos(x)] = -\sin(x)"))
+                                if 'tan' in expr_str and 'atan' not in expr_str:
+                                    rules_used.append(("Tangent Rule", r"\frac{d}{dx}[\tan(x)] = \sec^2(x) = 1 + \tan^2(x)"))
+                                if 'exp' in expr_str:
+                                    rules_used.append(("Exponential Rule", r"\frac{d}{dx}[e^x] = e^x"))
+                                if 'log' in expr_str:
+                                    rules_used.append(("Natural Log Rule", r"\frac{d}{dx}[\ln(x)] = \frac{1}{x}"))
+                                if 'sqrt' in expr_str:
+                                    rules_used.append(("Square Root Rule", r"\frac{d}{dx}[\sqrt{x}] = \frac{1}{2\sqrt{x}}"))
+                                
+                                # Always applicable rules
+                                rules_used.append(("Constant Rule", r"\frac{d}{dx}[c] = 0"))
+                                rules_used.append(("Sum Rule", r"\frac{d}{dx}[f(x) + g(x)] = f'(x) + g'(x)"))
+                                rules_used.append(("Constant Multiple", r"\frac{d}{dx}[c \cdot f(x)] = c \cdot f'(x)"))
+                                
+                                if '*' in expr_str or len(best_g_expr.args) > 1:
+                                    rules_used.append(("Product Rule", r"\frac{d}{dx}[f(x) \cdot g(x)] = f'(x) \cdot g(x) + f(x) \cdot g'(x)"))
+                                if '/' in expr_str:
+                                    rules_used.append(("Quotient Rule", r"\frac{d}{dx}\left[\frac{f(x)}{g(x)}\right] = \frac{f'(x) \cdot g(x) - f(x) \cdot g'(x)}{[g(x)]^2}"))
+                                
+                                rules_used.append(("Chain Rule", r"\frac{d}{dx}[f(g(x))] = f'(g(x)) \cdot g'(x)"))
+                                
+                                st.markdown("**Differentiation rules that apply to g(x):**")
+                                for rule_name, rule_formula in rules_used:
+                                    st.latex(f"\\text{{{rule_name}}}: \\quad {rule_formula}")
+                            
+                                st.markdown("---")
+                                
+                                # Step 3: Show the derivative symbolically
+                                st.markdown("#### Step 3: Apply Differentiation")
+                                
+                                st.markdown("**Taking the derivative:**")
+                                st.latex(f"\\frac{{d}}{{dx}}\\left[{latex(best_g_expr)}\\right]")
+                                
+                                # Compute derivative (use stored one if available, otherwise recalculate)
+                                if best_g_prime_expr is not None:
+                                    g_prime_calc_expr = best_g_prime_expr
+                                else:
+                                    g_prime_calc_expr = diff(best_g_expr, x_sym)
+                                
+                                # Show term-by-term if it's a sum
+                                from sympy import Add
+                                if isinstance(best_g_expr, Add):
+                                    st.markdown("**Breaking down term by term (Sum Rule):**")
+                                    for i, term in enumerate(best_g_expr.args, 1):
+                                        term_derivative = diff(term, x_sym)
+                                        st.latex(f"\\text{{Term {i}: }} \\frac{{d}}{{dx}}\\left[{latex(term)}\\right] = {latex(term_derivative)}")
+                                    
+                                    st.markdown("**Combining all terms:**")
+                                
+                                st.latex(f"g'(x) = {latex(g_prime_calc_expr)}")
+                                
+                                st.markdown("---")
+                                
+                                # Step 4: Simplify
+                                st.markdown("#### Step 4: Simplify the Derivative")
+                                
+                                simplified_g_prime = simplify(g_prime_calc_expr)
+                                expanded_g_prime = expand(g_prime_calc_expr)
+                                
+                                if simplified_g_prime != g_prime_calc_expr:
+                                    st.markdown("**Simplified form:**")
+                                    st.latex(f"g'(x) = {latex(simplified_g_prime)}")
+                                
+                                if expanded_g_prime != simplified_g_prime and expanded_g_prime != g_prime_calc_expr:
+                                    st.markdown("**Expanded form:**")
+                                    st.latex(f"g'(x) = {latex(expanded_g_prime)}")
+                                
+                                # Show final form
+                                st.markdown("**Final derivative:**")
+                                st.latex(f"g'(x) = {latex(simplified_g_prime)}")
+                                
+                                # Code format
+                                st.markdown("**Python/Code format:**")
+                                st.code(f"g'(x) = {simplified_g_prime}", language="python")
+                                
+                                st.markdown("---")
+                                
+                                # Step 5: Numerical verification
+                                st.markdown("#### Step 5: Verify with Numerical Approximation")
+                                
+                                st.markdown("""
+                                We can verify our symbolic derivative using the **finite difference formula**:
+                                """)
+                                st.latex(r"g'(x) \approx \frac{g(x+h) - g(x-h)}{2h} \quad \text{(centered difference)}")
+                                
+                                test_point = x0
+                                h = 1e-7
+                                
+                                # Numerical derivative using centered difference
+                                numerical_derivative = (g(test_point + h) - g(test_point - h)) / (2 * h)
+                                
+                                # Symbolic derivative value
+                                symbolic_derivative = float(simplified_g_prime.subs(x_sym, test_point))
+                                
+                                verification_data = {
+                                    'Method': [
+                                        'Symbolic (Exact)',
+                                        'Centered Difference',
+                                        'Absolute Error'
+                                    ],
+                                    f'g\'({test_point:.6f})': [
+                                        f"{symbolic_derivative:.12f}",
+                                        f"{numerical_derivative:.12f}",
+                                        f"{abs(symbolic_derivative - numerical_derivative):.2e}"
+                                    ]
+                                }
+                                
+                                st.dataframe(pd.DataFrame(verification_data), use_container_width=True, hide_index=True)
+                                
+                                if abs(symbolic_derivative - numerical_derivative) < 1e-6:
+                                    st.success("✅ Symbolic derivative verified! Numerical approximation matches.")
+                                else:
+                                    st.info(f"ℹ️ Difference: {abs(symbolic_derivative - numerical_derivative):.2e} (acceptable for h={h})")
+                                
+                                st.markdown("---")
+                                
+                                # Step 6: Derivative at each Fixed Point iteration
+                                st.markdown("#### Step 6: Derivative Values During Iteration")
+                                
+                                st.markdown("""
+                                **How Fixed Point Iteration uses the derivative:**
+                                
+                                The convergence condition requires **|g'(x)| < 1** for all x in the interval.
+                                At each iteration, we compute:
+                                """)
+                                st.latex(r"x_{n+1} = g(x_n)")
+                                
+                                st.markdown("The derivative **g'(xₙ)** tells us:")
+                                st.markdown("- **Convergence rate:** Smaller |g'(x)| means faster convergence")
+                                st.markdown("- **Stability:** |g'(x)| < 1 ensures the method converges")
+                                
+                                derivative_table = []
+                                for iteration in result['iterations'][:min(10, len(result['iterations']))]:
+                                    x_val = iteration['xₙ']
+                                    g_val = g(x_val)
+                                    try:
+                                        gprime_val = float(simplified_g_prime.subs(x_sym, x_val))
+                                    except:
+                                        gprime_val = g_prime(x_val)
+                                    
+                                    derivative_table.append({
+                                        'n': iteration['n'],
+                                        'xₙ': f"{x_val:.8f}",
+                                        'g(xₙ)': f"{g_val:.8f}",
+                                        "|g'(xₙ)|": f"{abs(gprime_val):.6f}",
+                                        'xₙ₊₁': f"{iteration['xₙ₊₁']:.8f}",
+                                        'Relative Error': f"{iteration['Relative Error']:.6e}"
+                                    })
+                                
+                                st.dataframe(pd.DataFrame(derivative_table), use_container_width=True, hide_index=True)
+                                
+                                st.info("💡 **Observation:** When |g'(xₙ)| < 1, the method converges. Smaller values mean faster convergence.")
+                            
+                        except Exception as e:
+                            st.error(f"Could not perform symbolic differentiation: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                
                 if method == "Newton-Raphson Method":
                     st.markdown("---")
                     st.markdown("### 🧮 Detailed Derivative Calculation")
@@ -1242,11 +2132,6 @@ if problem_type == "🎯 Root Finding":
                             st.caption("Very small derivative → large steps")
 
 
-                # ============================================================================
-                # PART 2: SECANT METHOD DERIVATIVE APPROXIMATION
-                # Insert this AFTER the Secant method result display
-                # ============================================================================
-
                 elif method == "Secant Method":
                     st.markdown("---")
                     st.markdown("### 🔢 Finite Difference Approximation (Derivative-Free)")
@@ -1376,251 +2261,11 @@ if problem_type == "🎯 Root Finding":
                         
                         st.latex(r"\text{Secant line slope} = \frac{f(x_n) - f(x_{n-1})}{x_n - x_{n-1}}")
 
-
                 # ============================================================================
-                # PART 3: FIXED POINT METHOD DERIVATIVE ANALYSIS
-                # Insert this AFTER Fixed Point method result display
+                # COMPARISON MODE - Derivative comparison
                 # ============================================================================
-
-                elif method == "Fixed Point Method":
-                    st.markdown("---")
-                    st.markdown("### 📊 Convergence Analysis: Role of g'(x)")
-                    
-                    with st.expander("📐 **Why g'(x) Determines Convergence**", expanded=True):
-                        st.markdown("""
-                        The Fixed Point method transforms **f(x) = 0** into **x = g(x)** and iterates:
-                        """)
-                        st.latex(r"x_{n+1} = g(x_n)")
-                        
-                        st.markdown("""
-                        #### Convergence Theorem:
-                        
-                        The method converges to root α if and only if:
-                        """)
-                        st.latex(r"|g'(\alpha)| < 1")
-                        
-                        st.markdown("**Why?** Let's analyze the error at each step.")
-                        
-                        st.markdown("---")
-                        st.markdown("#### Error Analysis:")
-                        
-                        st.markdown("Let eₙ = xₙ - α (error at iteration n)")
-                        st.markdown("**Step 1:** Start with iteration formula")
-                        st.latex(r"x_{n+1} = g(x_n)")
-                        
-                        st.markdown("**Step 2:** Since α is the true root: α = g(α)")
-                        st.markdown("**Step 3:** Subtract these equations:")
-                        st.latex(r"x_{n+1} - \alpha = g(x_n) - g(\alpha)")
-                        st.latex(r"e_{n+1} = g(x_n) - g(\alpha)")
-                        
-                        st.markdown("**Step 4:** Apply Mean Value Theorem:")
-                        st.latex(r"g(x_n) - g(\alpha) = g'(\xi)(x_n - \alpha) \quad \text{for some } \xi \in [x_n, \alpha]")
-                        
-                        st.markdown("**Step 5:** Therefore:")
-                        st.latex(r"e_{n+1} = g'(\xi) \cdot e_n")
-                        
-                        st.markdown("**Conclusion:**")
-                        st.latex(r"|e_{n+1}| \approx |g'(\alpha)| \cdot |e_n|")
-                        
-                        st.markdown("""
-                        - If **|g'(α)| < 1**: Error decreases → **Converges** ✅
-                        - If **|g'(α)| > 1**: Error increases → **Diverges** ❌
-                        - If **|g'(α)| = 1**: **Boundary case** (may or may not converge)
-                        """)
-                    
-                    with st.expander("🔬 **Calculate g'(x) for Your Function**", expanded=True):
-                        st.markdown("#### Your iteration function:")
-                        st.code(f"g(x) = {g_str}", language="python")
-                        
-                        try:
-                            from sympy import symbols, sympify, diff, latex, simplify, Abs
-                            from utils.validators import preprocess_function
-                            
-                            x_sym = symbols('x')
-                            processed_g = preprocess_function(g_str)
-                            g_expr = sympify(processed_g)
-                            
-                            st.markdown("**Mathematical form:**")
-                            st.latex(f"g(x) = {latex(g_expr)}")
-                            
-                            st.markdown("---")
-                            st.markdown("#### Computing g'(x):")
-                            
-                            g_prime_expr = diff(g_expr, x_sym)
-                            
-                            st.latex(f"\\frac{{d}}{{dx}}\\left[{latex(g_expr)}\\right] = {latex(g_prime_expr)}")
-                            
-                            simplified_g_prime = simplify(g_prime_expr)
-                            
-                            if simplified_g_prime != g_prime_expr:
-                                st.markdown("**Simplified:**")
-                                st.latex(f"g'(x) = {latex(simplified_g_prime)}")
-                            else:
-                                st.markdown("**Derivative:**")
-                                st.latex(f"g'(x) = {latex(g_prime_expr)}")
-                            
-                            st.markdown("---")
-                            
-                            # Evaluate g' at iterations
-                            st.markdown("#### Values of g'(x) During Iteration:")
-                            
-                            g_prime_func = lambdify(x_sym, simplified_g_prime, 'numpy')
-                            
-                            gprime_table = []
-                            for iteration in result['iterations'][:min(10, len(result['iterations']))]:
-                                x_val = iteration['xₙ']
-                                
-                                try:
-                                    gprime_val = float(g_prime_func(x_val))
-                                    abs_gprime = abs(gprime_val)
-                                    
-                                    if abs_gprime < 1:
-                                        status = "✅ Converging"
-                                    elif abs_gprime > 1:
-                                        status = "❌ Diverging"
-                                    else:
-                                        status = "⚠️ Boundary"
-                                    
-                                    gprime_table.append({
-                                        'n': iteration['n'],
-                                        'xₙ': f"{x_val:.6f}",
-                                        "g'(xₙ)": f"{gprime_val:.6f}",
-                                        "|g'(xₙ)|": f"{abs_gprime:.6f}",
-                                        'Status': status
-                                    })
-                                except:
-                                    pass
-                            
-                            st.dataframe(pd.DataFrame(gprime_table), use_container_width=True, hide_index=True)
-                            
-                            # Final analysis
-                            if result['success']:
-                                final_x = result['root']
-                                final_gprime = float(g_prime_func(final_x))
-                                
-                                st.markdown("---")
-                                st.markdown("#### Convergence Assessment at Root:")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                col1.metric("Root α", f"{final_x:.6f}")
-                                col2.metric("g'(α)", f"{final_gprime:.6f}")
-                                col3.metric("|g'(α)|", f"{abs(final_gprime):.6f}")
-                                
-                                if abs(final_gprime) < 0.5:
-                                    st.success(f"✅ Excellent! |g'(α)| = {abs(final_gprime):.4f} < 0.5 → Fast convergence")
-                                elif abs(final_gprime) < 1:
-                                    st.success(f"✅ Good! |g'(α)| = {abs(final_gprime):.4f} < 1 → Method converges")
-                                elif abs(final_gprime) == 1:
-                                    st.warning(f"⚠️ Boundary case: |g'(α)| = 1 → Convergence uncertain")
-                                else:
-                                    st.error(f"❌ Problem: |g'(α)| = {abs(final_gprime):.4f} > 1 → Should not converge (may be luck or wrong root)")
-                            
-                        except Exception as e:
-                            st.error(f"Could not compute g'(x): {e}")
-                            st.info("Try simplifying your g(x) function.")
-                    
-                    with st.expander("💡 **How to Choose Good g(x)**", expanded=False):
-                        st.markdown("""
-                        #### Guidelines for Choosing g(x):
-                        
-                        Given **f(x) = 0**, there are multiple ways to write **x = g(x)**:
-                        
-                        **Example:** f(x) = x³ - x - 2 = 0
-                        
-                        **Option 1:** x = x³ - 2
-                        """)
-                        st.latex(r"g_1(x) = x^3 - 2, \quad g_1'(x) = 3x^2")
-                        st.markdown("At root x ≈ 1.52: |g₁'(1.52)| ≈ 6.9 > 1 ❌ **Diverges!**")
-                        
-                        st.markdown("**Option 2:** x = (x + 2)^(1/3)")
-                        st.latex(r"g_2(x) = (x+2)^{1/3}, \quad g_2'(x) = \frac{1}{3(x+2)^{2/3}}")
-                        st.markdown("At root x ≈ 1.52: |g₂'(1.52)| ≈ 0.16 < 1 ✅ **Converges!**")
-                        
-                        st.markdown("---")
-                        st.markdown("#### Strategy:")
-                        st.markdown("""
-                        1. **Rearrange** f(x) = 0 into x = g(x) in multiple ways
-                        2. **Compute** g'(x) for each rearrangement
-                        3. **Choose** the g(x) where |g'(α)| is smallest near the root
-                        4. **Test** with initial guess to verify convergence
-                        
-                        **Common Techniques:**
-                        """)
-                        
-                        st.code("""
-                # If f(x) = x² - a = 0, solve for x = a/x
-                # If f(x) = x - cos(x) = 0, use x = cos(x)
-                # If f(x) = x³ - x - 2 = 0, use x = (x+2)^(1/3)
-                        """, language="python")
-                        
-                        st.markdown("""
-                        **Pro Tip:** For f(x) = 0, try:
-                        """)
-                        st.latex(r"x = x - \lambda f(x) \quad \text{where } \lambda \text{ is chosen so } |g'(x)| < 1")
-
-
-                # ============================================================================
-                # PART 4: GENERAL DERIVATIVE DISPLAY HELPER (for all methods)
-                # Add this section after importing libraries at the top
-                # ============================================================================
-
-                # Insert this near the top of app.py after imports
-                def show_derivative_info(func_str, x_point=None):
-                    """
-                    Helper function to display derivative information for any function.
-                    Can be called from any method to show differentiation details.
-                    
-                    Args:
-                        func_str: String representation of the function
-                        x_point: Optional point at which to evaluate (default None)
-                    """
-                    try:
-                        from sympy import symbols, sympify, diff, latex, simplify
-                        from utils.validators import preprocess_function
-                        
-                        x_sym = symbols('x')
-                        processed = preprocess_function(func_str)
-                        expr = sympify(processed)
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("**Function:**")
-                            st.latex(f"f(x) = {latex(expr)}")
-                        
-                        with col2:
-                            f_prime_expr = diff(expr, x_sym)
-                            simplified = simplify(f_prime_expr)
-                            st.markdown("**Derivative:**")
-                            st.latex(f"f'(x) = {latex(simplified)}")
-                        
-                        if x_point is not None:
-                            st.markdown(f"**At x = {x_point:.6f}:**")
-                            
-                            f_val = float(expr.subs(x_sym, x_point))
-                            fprime_val = float(simplified.subs(x_sym, x_point))
-                            
-                            col1, col2 = st.columns(2)
-                            col1.metric("f(x)", f"{f_val:.6f}")
-                            col2.metric("f'(x)", f"{fprime_val:.6f}")
-                        
-                        return True
-                    except:
-                        return False
-
-
-                # ============================================================================
-                # PART 5: COMPARISON MODE - Add derivative comparison
-                # Insert this in the "Compare All Methods" section
-                # ============================================================================
-
-                # In the Compare All Methods section, after showing the comparison table,
-                # add this section:
 
                 if method == "🔬 Compare All Methods" and calculate:
-                    # ... existing comparison code ...
-                    
-                    # ADD THIS NEW SECTION
                     st.markdown("---")
                     st.markdown("### 🔬 Derivative Requirements Comparison")
                     
@@ -1704,18 +2349,54 @@ if problem_type == "🎯 Root Finding":
                         except Exception as e:
                             st.info("Could not compute symbolic derivative for comparison.")
 
+                # Metrics
+                col1, col2, col3 = st.columns(3)
+                root_val = result['root']
+                
+                col1.metric("Root", f"{root_val:.8f}" if number_format == "Decimal" else f"{root_val:.6e}")
+                
+                if method == "Fixed Point Method":
+                    col2.metric("f(root)", f"{f(root_val):.2e}")
+                    # Add verification
+                    st.markdown("---")
+                    verification_error = abs(root_val - g(root_val))
+                    if verification_error < tolerance * 10:
+                        st.success(f"✅ Fixed point verified: |x - g(x)| = {verification_error:.2e}")
+                    else:
+                        st.warning(f"⚠️ Fixed point error: |x - g(x)| = {verification_error:.2e}")
+                else:
+                    col2.metric("f(root)", f"{f(root_val):.2e}")
+                
+                col3.metric("Iterations", len(result['iterations']))
+                
+                st.markdown("---")
+                
+                # Iteration table
+                st.subheader("📊 Iteration Table")
+                df = pd.DataFrame(result['iterations'])
+                
+                # Ensure all numeric columns are real (not complex)
+                for col in df.select_dtypes(include=[np.number]).columns:
+                    df[col] = df[col].apply(lambda x: np.real(x) if isinstance(x, complex) or np.iscomplexobj(x) else float(x))
+                
+                # Create a display copy without altering original data
+                df_display = df.copy()
 
-                # ============================================================================
-                # PART 6: Enhanced iteration display with derivative insights
-                # Add this to enhance the iteration table display for Newton-Raphson
-                # ============================================================================
+                if number_format == "Scientific":
+                    for col in df_display.select_dtypes(include=[np.number]).columns:
+                        df_display[col] = df_display[col].map(lambda x: f"{float(x):.6e}")
+                else:
+                    for col in df_display.select_dtypes(include=[np.number]).columns:
+                        df_display[col] = df_display[col].map(lambda x: f"{float(x):.10f}")
 
-                # In Newton-Raphson section, after the iteration table, add:
-
-                if method == "Newton-Raphson Method" and calculate and result['success']:
-                    # ... existing iteration table code ...
-                    
-                    # ADD THIS ANALYSIS
+                st.dataframe(df_display, use_container_width=True, height=400)
+                
+                # Download
+                csv = pd.DataFrame(result['iterations']).to_csv(index=False)
+                st.download_button("📥 Download CSV", csv, f"{method.replace(' ', '_')}_results.csv", "text/csv")
+                
+                # Derivative Behavior Analysis for Newton-Raphson (after iteration table)
+                if method == "Newton-Raphson Method" and result['success']:
                     st.markdown("---")
                     st.markdown("### 📈 Derivative Behavior Analysis")
                     
@@ -1741,30 +2422,22 @@ if problem_type == "🎯 Root Finding":
                         st.caption("📊 Shows how steep the function is at each iteration point")
                     
                     with col2:
-                        st.markdown("#### Step Sizes (|f/f'|)")
+                        st.markdown("#### Step Size Analysis")
                         
-                        # Calculate step sizes
-                        step_sizes = []
-                        for it in result['iterations']:
-                            if it["f'(xₙ)"] != 0:
-                                step = abs(it['f(xₙ)'] / it["f'(xₙ)"])
-                                step_sizes.append(step)
-                            else:
-                                step_sizes.append(0)
+                        step_sizes = [abs(it['xₙ₊₁'] - it['xₙ']) for it in result['iterations']]
                         
                         fig2, ax2 = plt.subplots(figsize=(8, 5))
                         ax2.plot(iterations_list, step_sizes, 'r-s', linewidth=2, markersize=8)
                         ax2.set_xlabel('Iteration', fontsize=12, fontweight='bold')
-                        ax2.set_ylabel('Step Size', fontsize=12, fontweight='bold')
-                        ax2.set_title('Newton Step Sizes', fontsize=14, fontweight='bold')
+                        ax2.set_ylabel('Step Size |xₙ₊₁ - xₙ|', fontsize=12, fontweight='bold')
+                        ax2.set_title("Step Size During Convergence", fontsize=14, fontweight='bold')
                         ax2.grid(True, alpha=0.3)
                         ax2.set_yscale('log')
                         
                         st.pyplot(fig2)
                         
-                        st.caption("📊 Shows how far Newton-Raphson moves at each iteration")
+                        st.caption("📊 Shows how step size decreases as we approach the root")
                     
-                    # Insights
                     st.markdown("#### 🔍 Observations:")
                     
                     avg_derivative = np.mean([abs(it["f'(xₙ)"]) for it in result['iterations']])
@@ -1787,178 +2460,6 @@ if problem_type == "🎯 Root Finding":
                     
                     for insight in insights:
                         st.markdown(insight)
-
-
-                # ============================================================================
-                # PART 7: Add a "Derivative Calculator" utility in sidebar
-                # Insert this in the sidebar, perhaps as an optional tool
-                # ============================================================================
-
-                # Add this to sidebar after method selection (optional feature)
-                if problem_type == "🎯 Root Finding":
-                    st.sidebar.markdown("---")
-                    with st.sidebar.expander("🔧 **Derivative Calculator Tool**", expanded=False):
-                        st.markdown("Quick derivative calculator:")
-                        
-                        calc_func = st.text_input("Function:", value="x**2", key="deriv_calc_func")
-                        
-                        if st.button("Calculate Derivative", key="calc_deriv_btn"):
-                            try:
-                                from sympy import symbols, sympify, diff, latex, simplify
-                                from utils.validators import preprocess_function
-                                
-                                x_sym = symbols('x')
-                                processed = preprocess_function(calc_func)
-                                expr = sympify(processed)
-                                
-                                st.markdown("**f(x):**")
-                                st.latex(f"{latex(expr)}")
-                                
-                                deriv = diff(expr, x_sym)
-                                simplified = simplify(deriv)
-                                
-                                st.markdown("**f'(x):**")
-                                st.latex(f"{latex(simplified)}")
-                                
-                                st.code(f"f'(x) = {simplified}", language="python")
-                                
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-
-
-                # ============================================================================
-                # PART 8: Additional helper - Derivative at specific points table
-                # Can be added as an expander in any method that uses derivatives
-                # ============================================================================
-
-                def show_derivative_evaluation_table(f, f_prime, func_str, x_values, title="Derivative Evaluation"):
-                    """
-                    Show a table of function and derivative values at specific points.
-                    
-                    Args:
-                        f: Function
-                        f_prime: Derivative function
-                        func_str: String representation
-                        x_values: List of x values to evaluate
-                        title: Title for the section
-                    """
-                    st.markdown(f"#### {title}")
-                    
-                    eval_data = []
-                    for x_val in x_values:
-                        try:
-                            f_val = f(x_val)
-                            fp_val = f_prime(x_val)
-                            
-                            # Determine behavior
-                            if fp_val > 0:
-                                behavior = "↗️ Increasing"
-                            elif fp_val < 0:
-                                behavior = "↘️ Decreasing"
-                            else:
-                                behavior = "➡️ Stationary"
-                            
-                            # Curvature info would require f''
-                            eval_data.append({
-                                'x': f"{x_val:.6f}",
-                                'f(x)': f"{f_val:.6f}",
-                                "f'(x)": f"{fp_val:.6f}",
-                                'Behavior': behavior
-                            })
-                        except:
-                            pass
-                    
-                    st.dataframe(pd.DataFrame(eval_data), use_container_width=True, hide_index=True)
-
-
-                # ============================================================================
-                # INSTRUCTIONS FOR INTEGRATION
-                # ============================================================================
-
-                """
-                TO INTEGRATE THIS CODE INTO YOUR APP.PY:
-
-                1. NEWTON-RAPHSON (Part 1):
-                - Find line ~850-900 where Newton-Raphson displays results
-                - After "st.success(f'✅ {result['message']}')"
-                - Insert PART 1 code
-
-                2. SECANT METHOD (Part 2):
-                - Find Secant method results section
-                - After displaying the result message
-                - Insert PART 2 code
-
-                3. FIXED POINT METHOD (Part 3):
-                - Find Fixed Point method results section
-                - After displaying the result message
-                - Insert PART 3 code
-
-                4. HELPER FUNCTIONS (Part 4):
-                - Add near the top after imports, before main app code
-                - These can be called from anywhere
-
-                5. COMPARISON MODE (Part 5):
-                - Find "Compare All Methods" section
-                - After the comparison table display
-                - Insert PART 5 code
-
-                6. DERIVATIVE ANALYSIS (Part 6):
-                - In Newton-Raphson section
-                - After the iteration table
-                - Insert PART 6 code
-
-                7. SIDEBAR TOOL (Part 7):
-                - Optional: Add to sidebar for quick derivative calculations
-                - Insert after method selection in sidebar
-
-                8. EVALUATION TABLE (Part 8):
-                - Helper function - add with other utility functions
-                - Call it wherever you want to show derivative evaluations
-
-                TESTING:
-                - Test with: x**3 - x - 2
-                - Test with: sin(x) - x/2
-                - Test with: exp(x) - 3
-                - Test with: x**2 - 4
-                - Test with inverse trig: asin(x) - 0.5
-
-                Each should show detailed differentiation steps!
-                """
-
-                # Metrics
-                col1, col2, col3 = st.columns(3)
-                root_val = result['root']
-                
-                col1.metric("Root", f"{root_val:.8f}" if number_format == "Decimal" else f"{root_val:.6e}")
-                
-                if method == "Fixed Point Method":
-                    col2.metric("g(root)", f"{g(root_val):.6e}")
-                else:
-                    col2.metric("f(root)", f"{f(root_val):.2e}")
-                
-                col3.metric("Iterations", len(result['iterations']))
-                
-                st.markdown("---")
-                
-                # Iteration table
-                st.subheader("📊 Iteration Table")
-                df = pd.DataFrame(result['iterations'])
-                
-                # Create a display copy without altering original data
-                df_display = df.copy()
-
-                if number_format == "Scientific":
-                    for col in df_display.select_dtypes(include=[np.number]).columns:
-                        df_display[col] = df_display[col].map(lambda x: f"{x:.6e}")
-                else:
-                    for col in df_display.select_dtypes(include=[np.number]).columns:
-                        df_display[col] = df_display[col].map(lambda x: f"{x:.10f}")
-
-                st.dataframe(df_display, use_container_width=True, height=400)
-                
-                # Download
-                csv = pd.DataFrame(result['iterations']).to_csv(index=False)
-                st.download_button("📥 Download CSV", csv, f"{method.replace(' ', '_')}_results.csv", "text/csv")
                 
                 # Graph
                 if show_graph:
@@ -4435,5 +4936,1477 @@ elif problem_type == "⚡ Linear Systems (Gauss-Seidel)":
             """)
         
             st.markdown("---")
+
+# ============================================================================
+# NUMERICAL DIFFERENTIATION SECTION
+# ============================================================================
+elif problem_type == "📈 Numerical Differentiation":
+    st.sidebar.markdown("### 📈 Numerical Differentiation")
+    
+    # Method selection
+    diff_method = st.sidebar.radio(
+        "**Select Method:**",
+        ["🔄 Newton Forward", "🔙 Newton Backward"],
+        help="Forward: Use first point (x₀). Backward: Use last point (xₙ)"
+    )
+    
+    # Derivative order
+    calculate_all = st.sidebar.checkbox(
+        "**Calculate All Derivatives**",
+        value=False,
+        help="Calculate 1st, 2nd, and 3rd derivatives at once"
+    )
+    
+    if not calculate_all:
+        derivative_order = st.sidebar.selectbox(
+            "**Derivative Order:**",
+            [1, 2, 3],
+            index=0,
+            help="Select which derivative to calculate"
+        )
+    else:
+        derivative_order = None  # Will calculate all
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📊 Data Points")
+    
+    # Number of points
+    num_points = st.sidebar.number_input(
+        "**Number of Points:**",
+        min_value=2,
+        max_value=10,
+        value=7,  # Default to 7 for the provided example
+        help="Enter at least 2 points (more points = higher accuracy)"
+    )
+    
+    st.sidebar.markdown("---")
+    
+    # Initialize session state
+    if 'diff_x_points' not in st.session_state:
+        st.session_state.diff_x_points = [0.0] * 10
+    if 'diff_y_points' not in st.session_state:
+        st.session_state.diff_y_points = [0.0] * 10
+    
+    # Default example data
+    default_example = {
+        'x': [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6],
+        'y': [7.989, 8.403, 8.781, 9.129, 9.451, 9.750, 10.031]
+    }
+    
+    # Example data (e^x)
+    example_data = {
+        'x': [0.0, 0.1, 0.2, 0.3, 0.4],
+        'y': [1.0, 1.1052, 1.2214, 1.3499, 1.4918]  # e^x values
+    }
+    
+    # Load default values on first run
+    if 'diff_default_loaded' not in st.session_state:
+        st.session_state.diff_default_loaded = True
+        for i in range(len(default_example['x'])):
+            if i < len(st.session_state.diff_x_points):
+                st.session_state.diff_x_points[i] = default_example['x'][i]
+                st.session_state.diff_y_points[i] = default_example['y'][i]
+    
+    col1, col2 = st.sidebar.columns(2)
+    if col1.button("📝 Load Default", use_container_width=True):
+        for i in range(len(default_example['x'])):
+            if i < len(st.session_state.diff_x_points):
+                st.session_state.diff_x_points[i] = default_example['x'][i]
+                st.session_state.diff_y_points[i] = default_example['y'][i]
+        st.rerun()
+    
+    if col2.button("📝 Load Example (e^x)", use_container_width=True):
+        for i in range(len(example_data['x'])):
+            if i < len(st.session_state.diff_x_points):
+                st.session_state.diff_x_points[i] = example_data['x'][i]
+                st.session_state.diff_y_points[i] = example_data['y'][i]
+        st.rerun()
+    
+    st.sidebar.markdown("### 📍 Enter Data Points")
+    
+    # Input points
+    x_points = []
+    y_points = []
+    
+    for i in range(num_points):
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            # Calculate default x value from previous point or use default example
+            if i == 0:
+                default_x = float(st.session_state.diff_x_points[i]) if i < len(st.session_state.diff_x_points) else (float(default_example['x'][i]) if i < len(default_example['x']) else 0.0)
+            else:
+                # Use previous x value + estimated h if available, or use default example
+                prev_x = float(st.session_state.diff_x_points[i-1]) if (i-1) < len(st.session_state.diff_x_points) else (float(default_example['x'][i-1]) if (i-1) < len(default_example['x']) else 0.0)
+                if i > 1:
+                    prev_prev_x = float(st.session_state.diff_x_points[i-2]) if (i-2) >= 0 and (i-2) < len(st.session_state.diff_x_points) else (float(default_example['x'][i-2]) if (i-2) >= 0 and (i-2) < len(default_example['x']) else 0.0)
+                    estimated_h = prev_x - prev_prev_x if prev_prev_x != 0 else 0.1
+                else:
+                    estimated_h = 0.1
+                default_x = float(st.session_state.diff_x_points[i]) if i < len(st.session_state.diff_x_points) else (float(default_example['x'][i]) if i < len(default_example['x']) else prev_x + estimated_h)
+            
+            x_val = col1.number_input(
+                f"x{i}",
+                value=default_x,
+                format="%.6f",
+                key=f"diff_x_{i}",
+                help=f"x-coordinate for point {i}"
+            )
+        with col2:
+            y_val = col2.number_input(
+                f"y{i}",
+                value=float(st.session_state.diff_y_points[i]) if i < len(st.session_state.diff_y_points) else 0.0,
+                format="%.6f",
+                key=f"diff_y_{i}"
+            )
+        x_points.append(x_val)
+        y_points.append(y_val)
+        st.session_state.diff_x_points[i] = x_val
+        st.session_state.diff_y_points[i] = y_val
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎯 Point of Differentiation")
+    
+    # Show available x values
+    if len(x_points) > 0:
+        st.sidebar.info(f"📊 Available x values: {min(x_points):.4f} to {max(x_points):.4f}")
+        
+        # Let user select or input x₀
+        selection_method = st.sidebar.radio(
+            "**How to select point?**",
+            ["Select from dropdown", "Enter manually"],
+            help="Choose how to specify the point at which to calculate the derivative"
+        )
+        
+        if selection_method == "Select from dropdown":
+            # Default index based on method
+            default_idx = 0 if diff_method == "🔄 Newton Forward" else len(x_points) - 1
+            
+            x0_value = st.sidebar.selectbox(
+                f"**Select x{'₀' if diff_method == '🔄 Newton Forward' else 'ₙ'} (point to differentiate at):**",
+                options=x_points,
+                index=default_idx,
+                help="Forward: Choose point near start. Backward: Choose point near end."
+            )
+            x0_index = x_points.index(x0_value)
+        else:
+            # Manual input
+            default_x0 = float(x_points[0]) if diff_method == "🔄 Newton Forward" else float(x_points[-1])
+            x0_value = st.sidebar.number_input(
+                f"**Enter x{'₀' if diff_method == '🔄 Newton Forward' else 'ₙ'}:",
+                value=default_x0,
+                format="%.6f",
+                help="Enter the x value at which to calculate the derivative"
+            )
+            
+            # Validate if x0_value exists in dataset
+            if x0_value not in x_points:
+                st.sidebar.error(f"❌ x = {x0_value:.6f} not in dataset!")
+                st.sidebar.warning(f"💡 Available values: {', '.join([f'{x:.6f}' for x in x_points])}")
+                x0_index = None
+            else:
+                x0_index = x_points.index(x0_value)
+        
+        if x0_index is not None:
+            st.sidebar.success(f"✅ Using x = {x0_value:.6f} (index {x0_index})")
+            
+            # Warning for forward method if x0 is near the end
+            if diff_method == "🔄 Newton Forward" and x0_index > len(x_points) // 2:
+                st.sidebar.warning(f"⚠️ Forward method works best near the start. You have {len(x_points) - x0_index} points after x₀.")
+            
+            # Warning for backward method if xn is near the start
+            if diff_method == "🔙 Newton Backward" and x0_index < len(x_points) // 2:
+                st.sidebar.warning(f"⚠️ Backward method works best near the end. You have {x0_index + 1} points before xₙ.")
+    else:
+        x0_index = None
+        x0_value = None
+        st.sidebar.warning("⚠️ Enter data points first")
+    
+    # Calculate button
+    calculate_diff = st.sidebar.button("🚀 CALCULATE DERIVATIVE", type="primary", use_container_width=True)
+    
+    # Main content
+    st.markdown("## 📈 Numerical Differentiation")
+    st.markdown(f"### Using **{diff_method}** Difference Formula")
+    
+    if calculate_diff:
+        try:
+            # Validate data
+            if len(x_points) != len(y_points):
+                st.error("❌ Number of x and y values must match!")
+                st.stop()
+            
+            if len(x_points) < 2:
+                st.error("❌ Need at least 2 data points!")
+                st.stop()
+            
+            # Validate x0_index
+            if x0_index is None:
+                st.error("❌ Please select a valid point to differentiate at!")
+                st.stop()
+            
+            # Validate equally spaced points
+            from methods.newton_differentiation import validate_equally_spaced
+            is_valid, calculated_h = validate_equally_spaced(x_points)
+            if not is_valid:
+                st.error("❌ Points must be equally spaced! Please ensure constant step size h between consecutive x values.")
+                st.warning(f"💡 Detected step size: h = {calculated_h:.6f}, but points are not uniformly spaced.")
+                st.stop()
+            
+            # Use calculated h instead of user input
+            h = calculated_h
+            
+            # Calculate derivative(s)
+            if calculate_all:
+                # Calculate all three derivatives
+                results = {}
+                details_dict = {}
+                
+                # Check minimum points
+                if len(x_points) < 2:
+                    st.error("❌ Need at least 2 points for 1st derivative!")
+                    st.stop()
+                if len(x_points) < 3:
+                    st.warning("⚠️ Need at least 3 points for 2nd derivative. Calculating only 1st derivative.")
+                if len(x_points) < 4:
+                    st.warning("⚠️ Need at least 4 points for 3rd derivative. Calculating only 1st and 2nd derivatives.")
+                
+                # Calculate 1st derivative
+                try:
+                    if diff_method == "🔄 Newton Forward":
+                        result_dict = newton_forward_derivative(x_points, y_points, 1, x0_index=x0_index, max_terms=None)
+                    else:
+                        result_dict = newton_backward_derivative(x_points, y_points, 1, xn_index=x0_index, max_terms=None)
+                    
+                    if result_dict['success']:
+                        results[1] = result_dict['derivative']
+                        details_dict[1] = result_dict
+                    else:
+                        st.error(f"❌ Error calculating 1st derivative: {result_dict['message']}")
+                        results[1] = None
+                except Exception as e:
+                    st.error(f"❌ Error calculating 1st derivative: {str(e)}")
+                    results[1] = None
+                
+                # Calculate 2nd derivative
+                if len(x_points) >= 3:
+                    try:
+                        if diff_method == "🔄 Newton Forward":
+                            result_dict = newton_forward_derivative(x_points, y_points, 2, x0_index=x0_index, max_terms=None)
+                        else:
+                            result_dict = newton_backward_derivative(x_points, y_points, 2, xn_index=x0_index, max_terms=None)
+                        
+                        if result_dict['success']:
+                            results[2] = result_dict['derivative']
+                            details_dict[2] = result_dict
+                        else:
+                            st.warning(f"⚠️ Could not calculate 2nd derivative: {result_dict['message']}")
+                            results[2] = None
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not calculate 2nd derivative: {str(e)}")
+                        results[2] = None
+                
+                # Calculate 3rd derivative
+                if len(x_points) >= 4:
+                    try:
+                        if diff_method == "🔄 Newton Forward":
+                            result_dict = newton_forward_derivative(x_points, y_points, 3, x0_index=x0_index, max_terms=None)
+                        else:
+                            result_dict = newton_backward_derivative(x_points, y_points, 3, xn_index=x0_index, max_terms=None)
+                        
+                        if result_dict['success']:
+                            results[3] = result_dict['derivative']
+                            details_dict[3] = result_dict
+                        else:
+                            st.warning(f"⚠️ Could not calculate 3rd derivative: {result_dict['message']}")
+                            results[3] = None
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not calculate 3rd derivative: {str(e)}")
+                        results[3] = None
+                
+                # Set result and details for compatibility
+                result = None
+                details = None
+            else:
+                # Check minimum points for derivative order
+                min_points = derivative_order + 1
+                if len(x_points) < min_points:
+                    st.error(f"❌ Need at least {min_points} points for {derivative_order}{'st' if derivative_order == 1 else 'nd' if derivative_order == 2 else 'rd'} derivative!")
+                    st.stop()
+                
+                # Calculate single derivative using generalized function
+                if diff_method == "🔄 Newton Forward":
+                    result_dict = newton_forward_derivative(x_points, y_points, derivative_order, x0_index=x0_index, max_terms=None)
+                else:  # Backward
+                    result_dict = newton_backward_derivative(x_points, y_points, derivative_order, xn_index=x0_index, max_terms=None)
+                
+                if not result_dict['success']:
+                    st.error(f"❌ {result_dict['message']}")
+                    st.stop()
+                
+                result = result_dict['derivative']
+                details = result_dict
+            
+            # Display results
+            st.markdown("---")
+            st.markdown("### ✅ Results")
+            
+            # Show validation success - h is calculated from x points
+            calculated_h = details.get('spacing_h', 0.1) if not calculate_all else (details_dict.get(1, {}).get('spacing_h', 0.1) if results.get(1) is not None else 0.1)
+            st.success(f"✅ Points are equally spaced with h = {calculated_h:.8f}")
+            
+            if calculate_all:
+                # Display all derivatives
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if results.get(1) is not None:
+                        st.metric("1st Derivative", f"{results[1]:.8f}")
+                    else:
+                        st.metric("1st Derivative", "N/A")
+                with col2:
+                    if results.get(2) is not None:
+                        st.metric("2nd Derivative", f"{results[2]:.8f}")
+                    else:
+                        st.metric("2nd Derivative", "N/A")
+                with col3:
+                    if results.get(3) is not None:
+                        st.metric("3rd Derivative", f"{results[3]:.8f}")
+                    else:
+                        st.metric("3rd Derivative", "N/A")
+                with col4:
+                    calc_h_display = details_dict.get(1, {}).get('spacing_h', 0.1) if results.get(1) is not None else 0.1
+                    st.metric("Step Size (h)", f"{calc_h_display:.8f}")
+                
+                st.metric("Data Points Used", len(x_points))
+                
+                # Point of evaluation
+                eval_point = x_points[0] if diff_method == "🔄 Newton Forward" else x_points[-1]
+                eval_label = "x₀" if diff_method == "🔄 Newton Forward" else "xₙ"
+                
+                st.info(f"💡 Derivatives calculated at **{eval_label} = {eval_point:.6f}**")
+                
+                st.markdown("---")
+                st.markdown("### 📐 Formulas Used")
+                
+                # Show all formulas
+                for order in [1, 2, 3]:
+                    if results.get(order) is not None and details_dict.get(order) is not None:
+                        st.markdown(f"#### {order}{'st' if order == 1 else 'nd' if order == 2 else 'rd'} Derivative:")
+                        formula = details_dict[order].get('formula_used', details_dict[order].get('formula', ''))
+                        if formula:
+                            st.latex(formula)
+            else:
+                # Display single derivative
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        f"{derivative_order}{'st' if derivative_order == 1 else 'nd' if derivative_order == 2 else 'rd'} Derivative",
+                        f"{result:.8f}"
+                    )
+                with col2:
+                    st.metric("Step Size (h)", f"{calculated_h:.8f}")
+                with col3:
+                    st.metric("Data Points Used", len(x_points))
+                
+                # Point of evaluation
+                eval_point = details.get('at_point', x_points[0] if diff_method == "🔄 Newton Forward" else x_points[-1])
+                eval_label = "x₀" if diff_method == "🔄 Newton Forward" else "xₙ"
+                
+                st.info(f"💡 Derivative calculated at **{eval_label} = {eval_point:.6f}**")
+                
+                st.markdown("---")
+                st.markdown("### 📐 Formula Used")
+                formula = details.get('formula_used', details.get('formula', ''))
+                if formula:
+                    st.latex(formula)
+            
+            # Detailed calculation
+            st.markdown("---")
+            st.markdown("### 🔍 Detailed Calculation")
+            
+            with st.expander("📊 **Difference Table**", expanded=True):
+                # Get difference table from result
+                if calculate_all:
+                    # Use the first available result's difference table
+                    diff_table_2d = None
+                    for order in [1, 2, 3]:
+                        if results.get(order) is not None and details_dict.get(order) is not None:
+                            diff_table_2d = details_dict[order].get('difference_table')
+                            break
+                else:
+                    diff_table_2d = details.get('difference_table')
+                
+                if diff_table_2d is None:
+                    # Fallback: calculate directly
+                    from methods.newton_differentiation import calculate_forward_differences, calculate_backward_differences
+                    if diff_method == "🔄 Newton Forward":
+                        diff_table_2d = calculate_forward_differences(y_points, len(y_points) - 1)
+                    else:
+                        diff_table_2d = calculate_backward_differences(y_points, len(y_points) - 1)
+                
+                if diff_method == "🔄 Newton Forward":
+                    st.markdown("#### Forward Differences:")
+                else:
+                    st.markdown("#### Backward Differences:")
+                
+                # Convert 2D difference table to display format
+                if diff_table_2d and len(diff_table_2d) > 0:
+                    max_order = len(diff_table_2d[0]) - 1
+                    table_data = []
+                    
+                    # Determine which values are used in the formula
+                    used_cells = {}  # {(row_index, column_name): True}
+                    
+                    if calculate_all:
+                        # For all derivatives, mark all used indices from results
+                        for order in [1, 2, 3]:
+                            if results.get(order) is not None and details_dict.get(order) is not None:
+                                det = details_dict[order]
+                                terms_used = det.get('terms_used', [])
+                                x0_idx = det.get('x0_index', 0) if diff_method == "🔄 Newton Forward" else det.get('xn_index', len(y_points) - 1)
+                                
+                                for term in terms_used:
+                                    k = term.get('order', 0)
+                                    if k > 0:
+                                        diff_symbol = ("Δ" * k) if diff_method == "🔄 Newton Forward" else ("∇" * k)
+                                        used_cells[(x0_idx, f'{diff_symbol}y')] = True
+                    else:
+                        # For single derivative - use ALL terms from result
+                        terms_used = details.get('terms_used', [])
+                        x0_idx = details.get('x0_index', 0) if diff_method == "🔄 Newton Forward" else details.get('xn_index', len(y_points) - 1)
+                        
+                        for term in terms_used:
+                            k = term.get('order', 0)
+                            if k > 0:
+                                diff_symbol = ("Δ" * k) if diff_method == "🔄 Newton Forward" else ("∇" * k)
+                                used_cells[(x0_idx, f'{diff_symbol}y')] = True
+                    
+                    # Build table data from 2D difference table
+                    for i in range(len(y_points)):
+                        row = {'i': i, 'xᵢ': f"{x_points[i]:.6f}", 'yᵢ': f"{y_points[i]:.6f}"}
+                        
+                        for order in range(1, max_order + 1):
+                            if i < len(diff_table_2d) and order < len(diff_table_2d[i]):
+                                if diff_method == "🔄 Newton Forward":
+                                    # Forward: show differences starting from index 0
+                                    if i < len(diff_table_2d) - order + 1:
+                                        diff_symbol = "Δ" * order
+                                        row[f'{diff_symbol}y'] = diff_table_2d[i][order]
+                                else:
+                                    # Backward: show differences ending at index
+                                    if i >= order:
+                                        diff_symbol = "∇" * order
+                                        row[f'{diff_symbol}y'] = diff_table_2d[i][order]
+                        
+                        table_data.append(row)
+                    
+                    # Create DataFrame
+                    df = pd.DataFrame(table_data)
+                    
+                    # Apply styling to highlight used cells
+                    def highlight_used_cells(row):
+                        styles = [''] * len(row)
+                        for col_idx, col_name in enumerate(df.columns):
+                            if (row.name, col_name) in used_cells:
+                                styles[col_idx] = 'background-color: #ffd700; font-weight: bold;'
+                        return styles
+                    
+                    # Style the dataframe
+                    styled_df = df.style.apply(highlight_used_cells, axis=1)
+                    
+                    # Format numeric columns (difference columns)
+                    diff_columns = [col for col in df.columns if col not in ['i', 'xᵢ', 'yᵢ']]
+                    if diff_columns:
+                        styled_df = styled_df.format("{:.8f}", subset=diff_columns)
+                    
+                    st.markdown("**⭐ Highlighted cells (gold) = Values used in formula**")
+                    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                    
+                    # Show maximum order reached
+                    if max_order > 0:
+                        st.caption(f"📊 Maximum difference order calculated: **{max_order}** (until one value remains)")
+                else:
+                    st.warning("⚠️ Could not generate difference table")
+            
+            # Step-by-step calculation
+            if calculate_all:
+                # Show step-by-step for all calculated derivatives
+                for order in [1, 2, 3]:
+                    if results.get(order) is not None and details_dict.get(order) is not None:
+                        det = details_dict[order]
+                        res = results[order]
+                        with st.expander(f"🧮 **Step-by-Step: {order}{'st' if order == 1 else 'nd' if order == 2 else 'rd'} Derivative**", expanded=(order == 1)):
+                            st.markdown(f"#### Calculating {order}{'st' if order == 1 else 'nd' if order == 2 else 'rd'} derivative using {det.get('method', 'Newton')} formula:")
+                            formula = det.get('formula_used', det.get('formula', ''))
+                            if formula:
+                                st.latex(formula)
+                            st.markdown("---")
+                            
+                            # Get difference table and terms used
+                            diff_table = det.get('difference_table', [])
+                            terms_used = det.get('terms_used', [])
+                            calc_h = det.get('spacing_h', 0.1)
+                            
+                            if diff_table and len(diff_table) > 0 and terms_used:
+                                st.markdown(f"**Step 1:** Extract differences from difference table")
+                                st.markdown(f"**Total terms used:** {len(terms_used)}")
+                                
+                                x0_idx = det.get('x0_index', 0) if diff_method == "🔄 Newton Forward" else det.get('xn_index', len(y_points) - 1)
+                                
+                                if diff_method == "🔄 Newton Forward":
+                                    # Forward: extract from row x0_index
+                                    for term in terms_used:  # Show ALL terms
+                                        k = term.get('order', 0)
+                                        diff_val = term.get('difference', 0)
+                                        if k > 0:
+                                            diff_symbol = "Δ" * k
+                                            st.latex(f"\\{diff_symbol} y_{{{x0_idx}}} = {diff_val:.8f}")
+                                else:
+                                    # Backward: extract from row xn_index
+                                    for term in terms_used:  # Show ALL terms
+                                        k = term.get('order', 0)
+                                        diff_val = term.get('difference', 0)
+                                        if k > 0:
+                                            diff_symbol = "∇" * k
+                                            st.latex(f"\\{diff_symbol} y_{{{x0_idx}}} = {diff_val:.8f}")
+                                
+                                st.markdown("---")
+                                st.markdown("**Step 2:** Apply the formula with coefficients")
+                                
+                                # Build formula string
+                                formula_parts = []
+                                for term in terms_used:
+                                    k = term.get('order', 0)
+                                    coeff = term.get('coefficient', 0)
+                                    diff_val = term.get('difference', 0)
+                                    contrib = term.get('contribution', 0)
+                                    
+                                    if diff_method == "🔄 Newton Forward":
+                                        diff_symbol = "Δ" * k
+                                        if k == 1:
+                                            formula_parts.append(f"{coeff:.6f} \\times {diff_val:.8f}")
+                                        else:
+                                            formula_parts.append(f"{coeff:.6f} \\times {diff_val:.8f}")
+                                    else:
+                                        diff_symbol = "∇" * k
+                                        formula_parts.append(f"{coeff:.6f} \\times {diff_val:.8f}")
+                                
+                                # Show ALL terms, not just first few
+                                if order == 1:
+                                    if diff_method == "🔄 Newton Forward":
+                                        term_parts = []
+                                        for i, t in enumerate(terms_used):
+                                            k = t.get('order', 1)
+                                            diff_val = t.get('difference', 0)
+                                            sign = "-" if i > 0 and i % 2 == 0 else "+" if i > 0 else ""
+                                            if k == 1:
+                                                term_parts.append(f"{sign} {diff_val:.8f}" if sign else f"{diff_val:.8f}")
+                                            else:
+                                                term_parts.append(f"{sign} \\frac{{{diff_val:.8f}}}{{{k}}}" if sign else f"\\frac{{{diff_val:.8f}}}{{{k}}}")
+                                        terms_str = " ".join(term_parts)
+                                        st.latex(f"\\frac{{dy}}{{dx}} = \\frac{{1}}{{{calc_h:.8f}}} \\left( {terms_str} \\right)")
+                                    else:
+                                        term_parts = []
+                                        for i, t in enumerate(terms_used):
+                                            k = t.get('order', 1)
+                                            diff_val = t.get('difference', 0)
+                                            sign = " + " if i > 0 else ""
+                                            term_parts.append(f"{sign}\\frac{{{diff_val:.8f}}}{{{k}}}")
+                                        terms_str = "".join(term_parts)
+                                        st.latex(f"\\frac{{dy}}{{dx}} = \\frac{{1}}{{{calc_h:.8f}}} \\left( {terms_str} \\right)")
+                                elif order == 2:
+                                    term_parts = []
+                                    for i, t in enumerate(terms_used):
+                                        coeff = t.get('coefficient', 0)
+                                        diff_val = t.get('difference', 0)
+                                        sign = " + " if i > 0 else ""
+                                        term_parts.append(f"{sign}{coeff:.6f} \\times {diff_val:.8f}")
+                                    terms_str = "".join(term_parts)
+                                    st.latex(f"\\frac{{d^2y}}{{dx^2}} = \\frac{{1}}{{{calc_h:.8f}^2}} \\left( {terms_str} \\right)")
+                                else:
+                                    term_parts = []
+                                    for i, t in enumerate(terms_used):
+                                        coeff = t.get('coefficient', 0)
+                                        diff_val = t.get('difference', 0)
+                                        sign = " + " if i > 0 else ""
+                                        term_parts.append(f"{sign}{coeff:.6f} \\times {diff_val:.8f}")
+                                    terms_str = "".join(term_parts)
+                                    st.latex(f"\\frac{{d^3y}}{{dx^3}} = \\frac{{1}}{{{calc_h:.8f}^3}} \\left( {terms_str} \\right)")
+                                
+                                st.markdown("---")
+                                st.markdown("**Step 3:** Final Result")
+                                st.latex(f"\\frac{{d^{order}y}}{{dx^{order}}} = {res:.8f}")
+            else:
+                # Single derivative step-by-step
+                with st.expander("🧮 **Step-by-Step Calculation**", expanded=True):
+                    method_name = details.get('method', 'Newton Forward' if diff_method == "🔄 Newton Forward" else 'Newton Backward')
+                    st.markdown(f"#### Calculating {derivative_order}{'st' if derivative_order == 1 else 'nd' if derivative_order == 2 else 'rd'} derivative using {method_name} formula:")
+                    formula = details.get('formula_used', details.get('formula', ''))
+                    if formula:
+                        st.latex(formula)
+                    st.markdown("---")
+                    
+                    # Get difference table and terms used
+                    diff_table = details.get('difference_table', [])
+                    terms_used = details.get('terms_used', [])
+                    calc_h = details.get('spacing_h', 0.1)
+                    
+                    if diff_table and len(diff_table) > 0 and terms_used:
+                        st.markdown(f"**Step 1:** Extract differences from difference table")
+                        st.markdown(f"**Total terms used:** {len(terms_used)}")
+                        
+                        x0_idx = details.get('x0_index', 0) if diff_method == "🔄 Newton Forward" else details.get('xn_index', len(y_points) - 1)
+                        
+                        if diff_method == "🔄 Newton Forward":
+                            # Forward: extract from row x0_index
+                            for term in terms_used:  # Show ALL terms
+                                k = term.get('order', 0)
+                                diff_val = term.get('difference', 0)
+                                if k > 0:
+                                    diff_symbol = "Δ" * k
+                                    st.latex(f"\\{diff_symbol} y_{{{x0_idx}}} = {diff_val:.8f}")
+                        else:
+                            # Backward: extract from row xn_index
+                            for term in terms_used:  # Show ALL terms
+                                k = term.get('order', 0)
+                                diff_val = term.get('difference', 0)
+                                if k > 0:
+                                    diff_symbol = "∇" * k
+                                    st.latex(f"\\{diff_symbol} y_{{{x0_idx}}} = {diff_val:.8f}")
+                        
+                        st.markdown("---")
+                        st.markdown("**Step 2:** Apply the formula with coefficients")
+                        
+                        # Build weighted sum display
+                        weighted_sum = sum(term.get('contribution', 0) for term in terms_used)
+                        
+                        if derivative_order == 1:
+                            if diff_method == "🔄 Newton Forward":
+                                term_parts = []
+                                for i, t in enumerate(terms_used):
+                                    k = t.get('order', 1)
+                                    diff_val = t.get('difference', 0)
+                                    sign = "-" if i > 0 and i % 2 == 0 else "+" if i > 0 else ""
+                                    if k == 1:
+                                        term_parts.append(f"{sign} {diff_val:.8f}" if sign else f"{diff_val:.8f}")
+                                    else:
+                                        term_parts.append(f"{sign} \\frac{{{diff_val:.8f}}}{{{k}}}" if sign else f"\\frac{{{diff_val:.8f}}}{{{k}}}")
+                                terms_str = " ".join(term_parts)
+                                st.latex(f"\\frac{{dy}}{{dx}} = \\frac{{1}}{{{calc_h:.8f}}} \\left( {terms_str} \\right)")
+                            else:
+                                term_parts = []
+                                for i, t in enumerate(terms_used):
+                                    k = t.get('order', 1)
+                                    diff_val = t.get('difference', 0)
+                                    sign = " + " if i > 0 else ""
+                                    term_parts.append(f"{sign}\\frac{{{diff_val:.8f}}}{{{k}}}")
+                                terms_str = "".join(term_parts)
+                                st.latex(f"\\frac{{dy}}{{dx}} = \\frac{{1}}{{{calc_h:.8f}}} \\left( {terms_str} \\right)")
+                        elif derivative_order == 2:
+                            term_parts = []
+                            for i, t in enumerate(terms_used):
+                                coeff = t.get('coefficient', 0)
+                                diff_val = t.get('difference', 0)
+                                sign = " + " if i > 0 else ""
+                                term_parts.append(f"{sign}{coeff:.6f} \\times {diff_val:.8f}")
+                            terms_str = "".join(term_parts)
+                            st.latex(f"\\frac{{d^2y}}{{dx^2}} = \\frac{{1}}{{{calc_h:.8f}^2}} \\left( {terms_str} \\right)")
+                        else:
+                            term_parts = []
+                            for i, t in enumerate(terms_used):
+                                coeff = t.get('coefficient', 0)
+                                diff_val = t.get('difference', 0)
+                                sign = " + " if i > 0 else ""
+                                term_parts.append(f"{sign}{coeff:.6f} \\times {diff_val:.8f}")
+                            terms_str = "".join(term_parts)
+                            st.latex(f"\\frac{{d^3y}}{{dx^3}} = \\frac{{1}}{{{calc_h:.8f}^3}} \\left( {terms_str} \\right)")
+                        
+                        st.latex(f"\\frac{{d^{derivative_order}y}}{{dx^{derivative_order}}} = {result:.8f}")
+                    else:
+                        st.warning("⚠️ Difference table not available for step-by-step display")
+            
+            # Visualization
+            st.markdown("---")
+            st.markdown("### 📊 Data Visualization")
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(x_points, y_points, 'bo-', linewidth=2, markersize=8, label='Data Points')
+            ax.grid(True, alpha=0.3)
+            ax.set_xlabel('x', fontsize=12)
+            ax.set_ylabel('y = f(x)', fontsize=12)
+            ax.set_title(f'Data Points for Numerical Differentiation', fontsize=14, fontweight='bold')
+            ax.legend()
+            st.pyplot(fig)
+            
+        except Exception as e:
+            st.error(f"❌ Error calculating derivative: {str(e)}")
+            import traceback
+            with st.expander("🔍 Error Details"):
+                st.code(traceback.format_exc())
+    
+    else:
+        # Welcome screen
+        st.info("👈 **Get Started:** Enter your data points in the sidebar and click 'CALCULATE DERIVATIVE'")
+        
+        st.markdown("### 📚 About Numerical Differentiation")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **What is Numerical Differentiation?**
+            
+            Numerical differentiation is used to approximate derivatives when:
+            - The function is only known at discrete points
+            - The function is too complex to differentiate analytically
+            - We have experimental data
+            
+            #### Newton's Forward Difference Formula:
+            Used when we want the derivative at the **first point** (x₀):
+            - First Derivative: Uses Δy₀, Δ²y₀, Δ³y₀, ...
+            - Best for: Beginning of data range
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Newton's Backward Difference Formula:**
+            Used when we want the derivative at the **last point** (xₙ):
+            - First Derivative: Uses ∇yₙ, ∇²yₙ, ∇³yₙ, ...
+            - Best for: End of data range
+            
+            #### Key Features:
+            - ✅ Works with tabulated data
+            - ✅ No need for analytical function
+            - ✅ Higher order differences = better accuracy
+            - ⚠️ Requires uniform spacing (h)
+            """)
+        
+        st.markdown("---")
+        st.markdown("### 📐 Formulas Reference")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 🔄 Newton Forward:")
+            st.latex(r"\left(\frac{dy}{dx}\right)_{x=x_0} = \frac{1}{h} \left[\Delta y_0 - \frac{\Delta^2 y_0}{2} + \frac{\Delta^3 y_0}{3} - \frac{\Delta^4 y_0}{4} + \dots \right]")
+            st.latex(r"\left(\frac{d^2y}{dx^2}\right)_{x=x_0} = \frac{1}{h^2} \left[\Delta^2 y_0 - \Delta^3 y_0 + \frac{11}{12} \Delta^4 y_0 + \dots \right]")
+            st.latex(r"\left(\frac{d^3y}{dx^3}\right)_{x=x_0} = \frac{1}{h^3} \left[\Delta^3 y_0 - \frac{3}{2} \Delta^4 y_0 + \dots \right]")
+        
+        with col2:
+            st.markdown("#### 🔙 Newton Backward:")
+            st.latex(r"\left(\frac{dy}{dx}\right)_{x=x_n} = \frac{1}{h} \left[\nabla y_n + \frac{\nabla^2 y_n}{2} + \frac{\nabla^3 y_n}{3} + \frac{\nabla^4 y_n}{4} + \dots \right]")
+            st.latex(r"\left(\frac{d^2y}{dx^2}\right)_{x=x_n} = \frac{1}{h^2} \left[\nabla^2 y_n + \nabla^3 y_n + \frac{11}{12} \nabla^4 y_n + \dots \right]")
+            st.latex(r"\left(\frac{d^3y}{dx^3}\right)_{x=x_n} = \frac{1}{h^3} \left[\nabla^3 y_n + \frac{3}{2} \nabla^4 y_n + \dots \right]")
+
+# ============================================================================
+# NUMERICAL INTEGRATION SECTION
+# ============================================================================
+elif problem_type == "📐 Numerical Integration":
+    st.sidebar.markdown("### 📐 Numerical Integration")
+    
+    # Method selection
+    integration_method = st.sidebar.selectbox(
+        "**Select Integration Method:**",
+        [
+            "Trapezoidal Rule",
+            "Simpson's 1/3 Rule",
+            "Simpson's 3/8 Rule"
+        ],
+        help="Choose numerical integration method"
+    )
+    
+    # Method info
+    method_info = {
+        "Trapezoidal Rule": {
+            'description': '🟢 Simple | Works with any number of points',
+            'requirement': 'Minimum 2 points',
+            'accuracy': 'O(h²)',
+            'key': 'trapezoidal'
+        },
+        "Simpson's 1/3 Rule": {
+            'description': '🟡 More Accurate | Requires ODD number of points',
+            'requirement': 'Points: 3, 5, 7, 9, 11, ...',
+            'accuracy': 'O(h⁴)',
+            'key': 'simpson_1_3'
+        },
+        "Simpson's 3/8 Rule": {
+            'description': '🔴 Most Accurate | Requires specific point count',
+            'requirement': 'Points: 4, 7, 10, 13, 16, ...',
+            'accuracy': 'O(h⁴)',
+            'key': 'simpson_3_8'
+        }
+    }
+    
+    info = method_info[integration_method]
+    st.sidebar.info(f"{info['description']}\n\n**Requirement:** {info['requirement']}\n**Accuracy:** {info['accuracy']}")
+    
+    st.sidebar.markdown("---")
+    
+    # Number of points
+    num_points = st.sidebar.number_input(
+        "**Number of Data Points:**",
+        min_value=2,
+        max_value=100,
+        value=5,
+        step=1,
+        help="Enter the number of (x, y) data points"
+    )
+    
+    # Validate point count for selected method
+    method_key = info['key']
+    if method_key == 'simpson_1_3':
+        if num_points % 2 == 0:
+            st.sidebar.error(f"❌ Simpson's 1/3 needs ODD number of points. You have {num_points}.")
+    elif method_key == 'simpson_3_8':
+        n = num_points - 1
+        if n % 3 != 0:
+            st.sidebar.error(f"❌ Simpson's 3/8 needs intervals divisible by 3. You have {n} intervals (need 3, 6, 9, ...).")
+    
+    st.sidebar.markdown("---")
+    
+    # Data input method selection
+    input_method = st.sidebar.radio(
+        "**Data Input Method:**",
+        ["Manual Entry", "Function Input"],
+        help="Choose how to provide data: manually enter points or input a function"
+    )
+    
+    # Initialize session state
+    if 'int_x_points' not in st.session_state:
+        st.session_state.int_x_points = [0.0] * 100
+    if 'int_y_points' not in st.session_state:
+        st.session_state.int_y_points = [0.0] * 100
+    if 'int_func_input' not in st.session_state:
+        st.session_state.int_func_input = "x**2"
+    if 'int_a' not in st.session_state:
+        st.session_state.int_a = 0.0
+    if 'int_b' not in st.session_state:
+        st.session_state.int_b = 4.0
+    if 'int_n' not in st.session_state:
+        st.session_state.int_n = 4
+    
+    if input_method == "Function Input":
+        st.sidebar.markdown("### 🔢 Function Input")
+        st.sidebar.info("💡 Enter a function f(x) and integration limits. Points will be generated automatically.")
+        
+        # Function input
+        func_str = st.sidebar.text_area(
+            "**f(x) =**",
+            value=st.session_state.int_func_input,
+            height=80,
+            help="Enter your function using the keypad below",
+            key="int_function_input"
+        )
+        st.session_state.int_func_input = func_str
+        
+        # Virtual Keypad
+        st.sidebar.markdown("#### 🧮 Keypad")
+        
+        # Powers & Roots
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("x²", use_container_width=True, key="int_pow2"):
+            st.session_state.int_func_input += "x**2"
+            st.rerun()
+        if col2.button("x³", use_container_width=True, key="int_pow3"):
+            st.session_state.int_func_input += "x**3"
+            st.rerun()
+        if col3.button("xⁿ", use_container_width=True, key="int_pown"):
+            st.session_state.int_func_input += "x**"
+            st.rerun()
+        if col4.button("√x", use_container_width=True, key="int_sqrt"):
+            st.session_state.int_func_input += "sqrt(x)"
+            st.rerun()
+        
+        # Operators
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("+", use_container_width=True, key="int_add"):
+            st.session_state.int_func_input += " + "
+            st.rerun()
+        if col2.button("−", use_container_width=True, key="int_sub"):
+            st.session_state.int_func_input += " - "
+            st.rerun()
+        if col3.button("×", use_container_width=True, key="int_mul"):
+            st.session_state.int_func_input += "*"
+            st.rerun()
+        if col4.button("÷", use_container_width=True, key="int_div"):
+            st.session_state.int_func_input += "/"
+            st.rerun()
+        
+        # Trig functions
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("sin", use_container_width=True, key="int_sin"):
+            st.session_state.int_func_input += "sin(x)"
+            st.rerun()
+        if col2.button("cos", use_container_width=True, key="int_cos"):
+            st.session_state.int_func_input += "cos(x)"
+            st.rerun()
+        if col3.button("tan", use_container_width=True, key="int_tan"):
+            st.session_state.int_func_input += "tan(x)"
+            st.rerun()
+        if col4.button("π", use_container_width=True, key="int_pi"):
+            st.session_state.int_func_input += "pi"
+            st.rerun()
+        
+        # Advanced functions
+        st.sidebar.markdown("##### Advanced")
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("eˣ", use_container_width=True, key="int_exp"):
+            st.session_state.int_func_input += "exp(x)"
+            st.rerun()
+        if col2.button("ln", use_container_width=True, key="int_log"):
+            st.session_state.int_func_input += "log(x)"
+            st.rerun()
+        if col3.button("|x|", use_container_width=True, key="int_abs"):
+            st.session_state.int_func_input += "abs(x)"
+            st.rerun()
+        if col4.button("x", use_container_width=True, key="int_x"):
+            st.session_state.int_func_input += "x"
+            st.rerun()
+        
+        # Numbers
+        st.sidebar.markdown("##### Numbers")
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("7", use_container_width=True, key="int_7"):
+            st.session_state.int_func_input += "7"
+            st.rerun()
+        if col2.button("8", use_container_width=True, key="int_8"):
+            st.session_state.int_func_input += "8"
+            st.rerun()
+        if col3.button("9", use_container_width=True, key="int_9"):
+            st.session_state.int_func_input += "9"
+            st.rerun()
+        if col4.button("(", use_container_width=True, key="int_lpar"):
+            st.session_state.int_func_input += "("
+            st.rerun()
+        
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("4", use_container_width=True, key="int_4"):
+            st.session_state.int_func_input += "4"
+            st.rerun()
+        if col2.button("5", use_container_width=True, key="int_5"):
+            st.session_state.int_func_input += "5"
+            st.rerun()
+        if col3.button("6", use_container_width=True, key="int_6"):
+            st.session_state.int_func_input += "6"
+            st.rerun()
+        if col4.button(")", use_container_width=True, key="int_rpar"):
+            st.session_state.int_func_input += ")"
+            st.rerun()
+        
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("1", use_container_width=True, key="int_1"):
+            st.session_state.int_func_input += "1"
+            st.rerun()
+        if col2.button("2", use_container_width=True, key="int_2"):
+            st.session_state.int_func_input += "2"
+            st.rerun()
+        if col3.button("3", use_container_width=True, key="int_3"):
+            st.session_state.int_func_input += "3"
+            st.rerun()
+        if col4.button(".", use_container_width=True, key="int_dot"):
+            st.session_state.int_func_input += "."
+            st.rerun()
+        
+        # Controls
+        st.sidebar.markdown("##### Controls")
+        col1, col2, col3, col4 = st.sidebar.columns(4)
+        if col1.button("0", use_container_width=True, key="int_0"):
+            st.session_state.int_func_input += "0"
+            st.rerun()
+        if col2.button("⌫", use_container_width=True, key="int_back"):
+            st.session_state.int_func_input = st.session_state.int_func_input[:-1]
+            st.rerun()
+        if col3.button("🗑️", use_container_width=True, key="int_clear"):
+            st.session_state.int_func_input = ""
+            st.rerun()
+        if col4.button("␣", use_container_width=True, key="int_space"):
+            st.session_state.int_func_input += " "
+            st.rerun()
+        
+        st.sidebar.markdown("---")
+        
+        # Validate function
+        is_valid, f, error_msg = validate_function(func_str)
+        
+        if not is_valid:
+            st.sidebar.error(f"❌ Invalid Function: {error_msg}")
+            st.error(f"⚠️ **Error:** {error_msg}")
+            st.info("💡 **Tip:** Use the keypad buttons or check syntax. Examples: x**2, sin(x), exp(x)")
+            func_str = ""  # Prevent further processing
+        
+        # Integration limits and n
+        st.sidebar.markdown("### 📏 Integration Parameters")
+        
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            a = st.sidebar.number_input(
+                "**Lower Limit (a):**",
+                value=float(st.session_state.int_a),
+                format="%.6f",
+                key="int_a_input",
+                help="Lower bound of integration"
+            )
+            st.session_state.int_a = a
+        with col2:
+            b = st.sidebar.number_input(
+                "**Upper Limit (b):**",
+                value=float(st.session_state.int_b),
+                format="%.6f",
+                key="int_b_input",
+                help="Upper bound of integration"
+            )
+            st.session_state.int_b = b
+        
+        if a >= b:
+            st.sidebar.error("❌ Lower limit (a) must be less than upper limit (b)!")
+        
+        # Number of intervals n
+        n_intervals = st.sidebar.number_input(
+            "**Number of Intervals (n):**",
+            min_value=1,
+            max_value=1000,
+            value=int(st.session_state.int_n),
+            step=1,
+            help="Number of subintervals. h = (b-a)/n"
+        )
+        st.session_state.int_n = n_intervals
+        
+        # Calculate h
+        if a < b and n_intervals > 0:
+            h_calculated = (b - a) / n_intervals
+            st.sidebar.success(f"✅ **Step size:** h = (b-a)/n = ({b:.4f} - {a:.4f})/{n_intervals} = {h_calculated:.6f}")
+            
+            # Calculate number of points
+            num_points_from_n = n_intervals + 1
+            
+            # Validate point count for selected method
+            if method_key == 'simpson_1_3':
+                if num_points_from_n % 2 == 0:
+                    st.sidebar.warning(f"⚠️ Simpson's 1/3 needs ODD points. With n={n_intervals}, you'll have {num_points_from_n} points. Consider n={n_intervals+1} or n={n_intervals-1}.")
+            elif method_key == 'simpson_3_8':
+                if n_intervals % 3 != 0:
+                    st.sidebar.warning(f"⚠️ Simpson's 3/8 needs n divisible by 3. You have n={n_intervals}. Consider n={3*(n_intervals//3)} or n={3*((n_intervals//3)+1)}.")
+            
+            # Generate points if function is valid
+            if is_valid and func_str:
+                x_points = np.linspace(a, b, num_points_from_n).tolist()
+                try:
+                    y_points = [float(f(x)) for x in x_points]
+                    st.sidebar.success(f"✅ Generated {num_points_from_n} points from function")
+                except Exception as e:
+                    st.sidebar.error(f"❌ Error evaluating function: {str(e)}")
+                    x_points = []
+                    y_points = []
+            else:
+                x_points = []
+                y_points = []
+        else:
+            x_points = []
+            y_points = []
+            h_calculated = 0.0
+            n_intervals = 0
+            is_valid = False
+            func_str = ""
+            n_intervals = 0
+    
+    else:  # Manual Entry
+        st.sidebar.markdown("### 📍 Enter Data Points")
+        st.sidebar.info("💡 **Note:** x values must be equally spaced. The spacing h will be calculated automatically.")
+        
+        # Default example data (x² from 0 to 4)
+        default_example = {
+            'x': [0.0, 1.0, 2.0, 3.0, 4.0],
+            'y': [0.0, 1.0, 4.0, 9.0, 16.0]
+        }
+        
+        # Load default button
+        if st.sidebar.button("📥 Load Default Example (x²)", use_container_width=True):
+            for i in range(min(num_points, len(default_example['x']))):
+                st.session_state.int_x_points[i] = default_example['x'][i] if i < len(default_example['x']) else i * 1.0
+                st.session_state.int_y_points[i] = default_example['y'][i] if i < len(default_example['y']) else (i * 1.0) ** 2
+            st.sidebar.success("✅ Default values loaded!")
+            st.rerun()
+        
+        # Input points
+        x_points = []
+        y_points = []
+        
+        for i in range(num_points):
+            col1, col2 = st.sidebar.columns(2)
+            with col1:
+                default_x = float(st.session_state.int_x_points[i]) if i < len(st.session_state.int_x_points) else (float(default_example['x'][i]) if i < len(default_example['x']) else i * 1.0)
+                x_val = col1.number_input(
+                    f"x{i}",
+                    value=default_x,
+                    format="%.6f",
+                    key=f"int_x_{i}",
+                    help=f"x-coordinate for point {i}"
+                )
+            with col2:
+                default_y = float(st.session_state.int_y_points[i]) if i < len(st.session_state.int_y_points) else (float(default_example['y'][i]) if i < len(default_example['y']) else 0.0)
+                y_val = col2.number_input(
+                    f"y{i}",
+                    value=default_y,
+                    format="%.6f",
+                    key=f"int_y_{i}",
+                    help=f"y-coordinate (function value) for point {i}"
+                )
+            x_points.append(x_val)
+            y_points.append(y_val)
+            st.session_state.int_x_points[i] = x_val
+            st.session_state.int_y_points[i] = y_val
+    
+    st.sidebar.markdown("---")
+    
+    # Calculate button
+    calculate_integration = st.sidebar.button(
+        "🚀 INTEGRATE",
+        type="primary",
+        use_container_width=True
+    )
+    
+    # Main content
+    st.markdown("## 📐 Numerical Integration")
+    st.markdown(f"### Using **{integration_method}**")
+    
+    if calculate_integration:
+        try:
+            # For function input, ensure points were generated
+            if input_method == "Function Input":
+                if 'is_valid' in locals() and not is_valid:
+                    st.error("❌ Please enter a valid function first!")
+                    st.stop()
+                if len(x_points) == 0 or len(y_points) == 0:
+                    st.error("❌ Could not generate points from function. Check your function and limits.")
+                    st.stop()
+            
+            # Validate data
+            if len(x_points) != len(y_points):
+                st.error("❌ Number of x and y values must match!")
+                st.stop()
+            
+            if len(x_points) < 2:
+                st.error("❌ Need at least 2 data points!")
+                st.stop()
+            
+            # Perform integration
+            with st.spinner("Calculating integral..."):
+                result = numerical_integration(
+                    x_points=x_points,
+                    y_points=y_points,
+                    method=method_key
+                )
+            
+            if not result['success']:
+                st.error(f"❌ {result['message']}")
+                st.stop()
+            
+            # Display result
+            st.success(result['message'])
+            
+            # Metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Integral Value", format_max_precision(result['integral']))
+            with col2:
+                st.metric("Interval", f"[{format_max_precision(result['interval'][0])}, {format_max_precision(result['interval'][1])}]")
+            with col3:
+                st.metric("Points Used", result['num_points'])
+            with col4:
+                st.metric("Spacing (h)", format_max_precision(result['spacing_h']))
+            
+            # Show function info if function input was used
+            if input_method == "Function Input" and 'is_valid' in locals() and is_valid and 'func_str' in locals() and func_str:
+                st.info(f"📐 **Function:** f(x) = {func_str} | **Intervals:** n = {n_intervals if 'n_intervals' in locals() else 'N/A'} | **h = (b-a)/n = {format_max_precision(result['spacing_h'])}**")
+            
+            st.markdown("---")
+            
+            # Formula display
+            st.markdown("### 📐 Formula Used")
+            if result.get('formula_latex'):
+                st.latex(result['formula_latex'])
+            else:
+                st.code(result['formula_used'], language="text")
+            
+            st.markdown("---")
+            
+            # Detailed breakdown
+            st.markdown("### 🧮 Step-by-Step Calculation")
+            
+            breakdown = result['breakdown']
+            h = breakdown['h']
+            method_name = result['method_name']
+            
+            with st.expander("📊 **View Complete Breakdown**", expanded=True):
+                st.markdown(f"**Spacing:** h = {format_max_precision(h)}")
+                st.markdown(f"**Interval:** [{format_max_precision(breakdown['interval'][0])}, {format_max_precision(breakdown['interval'][1])}]")
+                st.markdown(f"**Number of intervals:** n = {result['num_intervals']}")
+                st.markdown(f"**Number of points:** {result['num_points']}")
+                
+                # Create table
+                breakdown_data = []
+                for term in breakdown['terms']:
+                    breakdown_data.append({
+                        'i': term['index'],
+                        'xᵢ': format_max_precision(term['x']),
+                        'yᵢ': format_max_precision(term['y']),
+                        'Coefficient': format_max_precision(term['coefficient']),
+                        'Contribution': format_max_precision(term['contribution'])
+                    })
+                
+                df = pd.DataFrame(breakdown_data)
+                
+                # Highlight cells based on coefficient
+                def highlight_coefficient(row):
+                    styles = [''] * len(row)
+                    try:
+                        coeff = float(row['Coefficient'])
+                        if abs(coeff - 4.0) < 0.01 or abs(coeff - 3.0) < 0.01:
+                            return ['', '', '', 'background-color: #ffd700; font-weight: bold;', '']
+                        elif abs(coeff - 2.0) < 0.01:
+                            return ['', '', '', 'background-color: #90ee90; font-weight: bold;', '']
+                        elif abs(coeff - 0.5) < 0.01:
+                            return ['', '', '', 'background-color: #87ceeb; font-weight: bold;', '']
+                    except:
+                        pass
+                    return styles
+                
+                styled_df = df.style.apply(highlight_coefficient, axis=1)
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                
+                st.caption("💡 **Color coding:** Gold = 4 or 3, Green = 2, Blue = 0.5")
+                
+                # Show sum
+                total = sum([term['contribution'] for term in breakdown['terms']])
+                st.success(f"**Total Integral = Σ(Contributions) = {format_max_precision(total)}**")
+            
+            # Detailed Step-by-Step Simplification
+            st.markdown("---")
+            with st.expander("🔢 **Detailed Step-by-Step Simplification**", expanded=True):
+                st.markdown("#### Step 1: Identify Parameters")
+                st.markdown(f"- **Step size:** h = {format_max_precision(h)}")
+                st.markdown(f"- **Interval:** [{format_max_precision(breakdown['interval'][0])}, {format_max_precision(breakdown['interval'][1])}]")
+                st.markdown(f"- **Number of points:** {result['num_points']}")
+                st.markdown(f"- **Number of intervals:** n = {result['num_intervals']}")
+                
+                st.markdown("---")
+                st.markdown("#### Step 2: Apply the Formula")
+                
+                if method_key == 'trapezoidal':
+                    st.markdown(f"**Trapezoidal Rule Formula:**")
+                    st.latex(r"I = \frac{h}{2}[y_0 + 2y_1 + 2y_2 + \cdots + 2y_{n-1} + y_n]")
+                    
+                    st.markdown("**Step 2.1: Identify Terms**")
+                    first_term = breakdown['terms'][0]
+                    last_term = breakdown['terms'][-1]
+                    middle_terms = breakdown['terms'][1:-1]
+                    
+                    st.markdown(f"- **First term:** y₀ = {format_max_precision(first_term['y'])} (coefficient = 0.5)")
+                    st.markdown(f"- **Middle terms:** {len(middle_terms)} terms with coefficient = 1.0")
+                    st.markdown(f"- **Last term:** yₙ = {format_max_precision(last_term['y'])} (coefficient = 0.5)")
+                    
+                    st.markdown("**Step 2.2: Calculate Each Term**")
+                    st.markdown(f"**First term contribution:**")
+                    st.latex(f"\\frac{{h}}{{2}} \\times y_0 = \\frac{{{format_max_precision(h)}}}{{2}} \\times {format_max_precision(first_term['y'])} = {format_max_precision(first_term['contribution'])}")
+                    
+                    st.markdown("**Middle terms contributions:**")
+                    middle_sum = sum([t['y'] for t in middle_terms])
+                    middle_contrib_sum = sum([t['contribution'] for t in middle_terms])
+                    st.latex(f"h \\times (y_1 + y_2 + \\cdots + y_{{{len(middle_terms)}}}) = {format_max_precision(h)} \\times {format_max_precision(middle_sum)} = {format_max_precision(middle_contrib_sum)}")
+                    
+                    st.markdown("**Last term contribution:**")
+                    st.latex(f"\\frac{{h}}{{2}} \\times y_n = \\frac{{{format_max_precision(h)}}}{{2}} \\times {format_max_precision(last_term['y'])} = {format_max_precision(last_term['contribution'])}")
+                    
+                    st.markdown("**Step 2.3: Sum All Contributions**")
+                    st.latex(f"I = {format_max_precision(first_term['contribution'])} + {format_max_precision(middle_contrib_sum)} + {format_max_precision(last_term['contribution'])} = {format_max_precision(result['integral'])}")
+                
+                elif method_key == 'simpson_1_3':
+                    st.markdown(f"**Simpson's 1/3 Rule Formula:**")
+                    st.latex(r"I = \frac{h}{3}[y_0 + 4y_1 + 2y_2 + 4y_3 + 2y_4 + \cdots + 4y_{n-1} + y_n]")
+                    
+                    st.markdown("**Step 2.1: Group Terms by Coefficient**")
+                    first_term = breakdown['terms'][0]
+                    last_term = breakdown['terms'][-1]
+                    odd_terms = [t for t in breakdown['terms'][1:-1] if t['index'] % 2 == 1]
+                    even_terms = [t for t in breakdown['terms'][1:-1] if t['index'] % 2 == 0]
+                    
+                    st.markdown(f"- **First term:** y₀ = {format_max_precision(first_term['y'])} (coefficient = 1)")
+                    st.markdown(f"- **Odd-indexed terms:** {len(odd_terms)} terms with coefficient = 4")
+                    st.markdown(f"- **Even-indexed terms:** {len(even_terms)} terms with coefficient = 2")
+                    st.markdown(f"- **Last term:** yₙ = {format_max_precision(last_term['y'])} (coefficient = 1)")
+                    
+                    st.markdown("**Step 2.2: Calculate Each Group**")
+                    st.markdown("**First term:**")
+                    st.latex(f"\\frac{{h}}{{3}} \\times y_0 = \\frac{{{format_max_precision(h)}}}{{3}} \\times {format_max_precision(first_term['y'])} = {format_max_precision(first_term['contribution'])}")
+                    
+                    if odd_terms:
+                        odd_sum_y = sum([t['y'] for t in odd_terms])
+                        odd_contrib_sum = sum([t['contribution'] for t in odd_terms])
+                        odd_indices = ", ".join([f"y_{{{t['index']}}}" for t in odd_terms[:5]])
+                        if len(odd_terms) > 5:
+                            odd_indices += f", \\ldots, y_{{{odd_terms[-1]['index']}}}"
+                        st.markdown("**Odd-indexed terms (coefficient 4):**")
+                        st.latex(f"\\frac{{h}}{{3}} \\times 4 \\times ({odd_indices}) = \\frac{{{format_max_precision(h)}}}{{3}} \\times 4 \\times {format_max_precision(odd_sum_y)} = {format_max_precision(odd_contrib_sum)}")
+                    
+                    if even_terms:
+                        even_sum_y = sum([t['y'] for t in even_terms])
+                        even_contrib_sum = sum([t['contribution'] for t in even_terms])
+                        even_indices = ", ".join([f"y_{{{t['index']}}}" for t in even_terms[:5]])
+                        if len(even_terms) > 5:
+                            even_indices += f", \\ldots, y_{{{even_terms[-1]['index']}}}"
+                        st.markdown("**Even-indexed terms (coefficient 2):**")
+                        st.latex(f"\\frac{{h}}{{3}} \\times 2 \\times ({even_indices}) = \\frac{{{format_max_precision(h)}}}{{3}} \\times 2 \\times {format_max_precision(even_sum_y)} = {format_max_precision(even_contrib_sum)}")
+                    
+                    st.markdown("**Last term:**")
+                    st.latex(f"\\frac{{h}}{{3}} \\times y_n = \\frac{{{format_max_precision(h)}}}{{3}} \\times {format_max_precision(last_term['y'])} = {format_max_precision(last_term['contribution'])}")
+                    
+                    st.markdown("**Step 2.3: Sum All Contributions**")
+                    parts = [format_max_precision(first_term['contribution'])]
+                    if odd_contrib_sum > 0:
+                        parts.append(format_max_precision(odd_contrib_sum))
+                    if even_contrib_sum > 0:
+                        parts.append(format_max_precision(even_contrib_sum))
+                    parts.append(format_max_precision(last_term['contribution']))
+                    st.latex(f"I = {' + '.join(parts)} = {format_max_precision(result['integral'])}")
+                
+                elif method_key == 'simpson_3_8':
+                    st.markdown(f"**Simpson's 3/8 Rule Formula:**")
+                    st.latex(r"I = \frac{3h}{8}[y_0 + 3y_1 + 3y_2 + 2y_3 + 3y_4 + 3y_5 + 2y_6 + \cdots + 3y_{n-1} + y_n]")
+                    
+                    st.markdown("**Step 2.1: Group Terms by Coefficient**")
+                    first_term = breakdown['terms'][0]
+                    last_term = breakdown['terms'][-1]
+                    coeff_3_terms = [t for t in breakdown['terms'][1:-1] if t['coefficient'] == 3]
+                    coeff_2_terms = [t for t in breakdown['terms'][1:-1] if t['coefficient'] == 2]
+                    
+                    st.markdown(f"- **First term:** y₀ = {format_max_precision(first_term['y'])} (coefficient = 1)")
+                    st.markdown(f"- **Terms with coefficient 3:** {len(coeff_3_terms)} terms")
+                    st.markdown(f"- **Terms with coefficient 2:** {len(coeff_2_terms)} terms (boundaries)")
+                    st.markdown(f"- **Last term:** yₙ = {format_max_precision(last_term['y'])} (coefficient = 1)")
+                    
+                    st.markdown("**Step 2.2: Calculate Each Group**")
+                    st.markdown("**First term:**")
+                    st.latex(f"\\frac{{3h}}{{8}} \\times y_0 = \\frac{{3 \\times {format_max_precision(h)}}}{{8}} \\times {format_max_precision(first_term['y'])} = {format_max_precision(first_term['contribution'])}")
+                    
+                    if coeff_3_terms:
+                        coeff_3_sum_y = sum([t['y'] for t in coeff_3_terms])
+                        coeff_3_contrib_sum = sum([t['contribution'] for t in coeff_3_terms])
+                        coeff_3_indices = ", ".join([f"y_{{{t['index']}}}" for t in coeff_3_terms[:5]])
+                        if len(coeff_3_terms) > 5:
+                            coeff_3_indices += f", \\ldots, y_{{{coeff_3_terms[-1]['index']}}}"
+                        st.markdown("**Terms with coefficient 3:**")
+                        st.latex(f"\\frac{{3h}}{{8}} \\times 3 \\times ({coeff_3_indices}) = \\frac{{3 \\times {format_max_precision(h)}}}{{8}} \\times 3 \\times {format_max_precision(coeff_3_sum_y)} = {format_max_precision(coeff_3_contrib_sum)}")
+                    
+                    if coeff_2_terms:
+                        coeff_2_sum_y = sum([t['y'] for t in coeff_2_terms])
+                        coeff_2_contrib_sum = sum([t['contribution'] for t in coeff_2_terms])
+                        coeff_2_indices = ", ".join([f"y_{{{t['index']}}}" for t in coeff_2_terms[:5]])
+                        if len(coeff_2_terms) > 5:
+                            coeff_2_indices += f", \\ldots, y_{{{coeff_2_terms[-1]['index']}}}"
+                        st.markdown("**Terms with coefficient 2 (boundaries):**")
+                        st.latex(f"\\frac{{3h}}{{8}} \\times 2 \\times ({coeff_2_indices}) = \\frac{{3 \\times {format_max_precision(h)}}}{{8}} \\times 2 \\times {format_max_precision(coeff_2_sum_y)} = {format_max_precision(coeff_2_contrib_sum)}")
+                    
+                    st.markdown("**Last term:**")
+                    st.latex(f"\\frac{{3h}}{{8}} \\times y_n = \\frac{{3 \\times {format_max_precision(h)}}}{{8}} \\times {format_max_precision(last_term['y'])} = {format_max_precision(last_term['contribution'])}")
+                    
+                    st.markdown("**Step 2.3: Sum All Contributions**")
+                    parts = [format_max_precision(first_term['contribution'])]
+                    if coeff_3_terms:
+                        parts.append(format_max_precision(coeff_3_contrib_sum))
+                    if coeff_2_terms:
+                        parts.append(format_max_precision(coeff_2_contrib_sum))
+                    parts.append(format_max_precision(last_term['contribution']))
+                    st.latex(f"I = {' + '.join(parts)} = {format_max_precision(result['integral'])}")
+                
+                st.markdown("---")
+                st.markdown("#### Step 3: Final Answer")
+                st.success(f"**∫f(x)dx ≈ {format_max_precision(result['integral'])}**")
+            
+            # Visualization
+            st.markdown("---")
+            st.markdown("### 📈 Visualization")
+            
+            fig, ax = plt.subplots(figsize=(12, 6))
+            
+            # Plot points
+            ax.plot(x_points, y_points, 'ro-', linewidth=2, markersize=8, label='Data Points')
+            
+            # Fill area under curve
+            ax.fill_between(x_points, 0, y_points, alpha=0.3, color='skyblue', label=f'Integral ≈ {format_max_precision(result["integral"])}')
+            
+            # Show method-specific visualization
+            if method_key == 'trapezoidal':
+                # Draw trapezoids
+                for i in range(len(x_points) - 1):
+                    xs = [x_points[i], x_points[i+1], x_points[i+1], x_points[i], x_points[i]]
+                    ys = [0, 0, y_points[i+1], y_points[i], 0]
+                    ax.plot(xs, ys, 'b--', alpha=0.5, linewidth=1)
+            
+            ax.axhline(0, color='black', linewidth=0.5)
+            ax.grid(True, alpha=0.3)
+            ax.set_xlabel('x', fontsize=12, fontweight='bold')
+            ax.set_ylabel('y = f(x)', fontsize=12, fontweight='bold')
+            ax.set_title(f'Numerical Integration: {integration_method}', fontsize=14, fontweight='bold')
+            ax.legend()
+            st.pyplot(fig)
+            
+            # Data table
+            st.markdown("---")
+            st.markdown("### 📊 Input Data")
+            
+            data_df = pd.DataFrame({
+                'i': range(len(x_points)),
+                'x': [format_max_precision(x) for x in x_points],
+                'y': [format_max_precision(y) for y in y_points]
+            })
+            st.dataframe(data_df, use_container_width=True, hide_index=True)
+            
+        except Exception as e:
+            st.error(f"❌ Error calculating integral: {str(e)}")
+            import traceback
+            with st.expander("🔍 Error Details"):
+                st.code(traceback.format_exc())
+    
+    else:
+        # Welcome screen
+        st.info("👈 **Get Started:** Enter data points in the sidebar and click 'INTEGRATE'")
+        
+        st.markdown("### 📚 About Numerical Integration")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **Trapezoidal Rule:**
+            - Approximates area using trapezoids
+            - Works with any number of points (≥2)
+            - Simple but less accurate
+            - Error: O(h²)
+            """)
+            
+            st.latex(r"\int_a^b f(x)dx \approx \frac{h}{2}[y_0 + 2y_1 + 2y_2 + \cdots + 2y_{n-1} + y_n]")
+        
+        with col2:
+            st.markdown("""
+            **Simpson's Rules:**
+            - More accurate polynomial approximations
+            - 1/3 Rule: Uses parabolas (requires ODD points)
+            - 3/8 Rule: Uses cubics (requires n divisible by 3)
+            - Error: O(h⁴)
+            """)
+            
+            st.latex(r"\int_a^b f(x)dx \approx \frac{h}{3}[y_0 + 4y_1 + 2y_2 + 4y_3 + \cdots + y_n]")
+        
+        st.markdown("---")
+        st.markdown("### 🔬 Method Comparison")
+        
+        comparison_table = pd.DataFrame({
+            'Method': ['Trapezoidal Rule', "Simpson's 1/3 Rule", "Simpson's 3/8 Rule"],
+            'Minimum Points': ['2', '3 (ODD)', '4'],
+            'Accuracy': ['O(h²)', 'O(h⁴)', 'O(h⁴)'],
+            'Best For': ['Any data', 'Smooth functions', 'Very smooth functions'],
+            'Complexity': ['Simple', 'Medium', 'Medium']
+        })
+        
+        st.dataframe(comparison_table, use_container_width=True, hide_index=True)
 
 st.caption("Numerical Computing Project | Root Finding & Interpolation Calculator")
