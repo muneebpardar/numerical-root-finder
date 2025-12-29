@@ -264,6 +264,19 @@ st.markdown("""
         letter-spacing: 0.3px;
         border: none;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        color: inherit !important;
+        font-size: 18px !important;
+    }
+    
+    /* Ensure operator buttons are visible */
+    .stButton > button[key*="add"],
+    .stButton > button[key*="sub"],
+    .stButton > button[key*="mul"],
+    .stButton > button[key*="div"] {
+        font-size: 24px !important;
+        font-weight: 700 !important;
+        color: #667eea !important;
+        min-width: 50px;
     }
     
     .stButton > button:hover {
@@ -1289,6 +1302,25 @@ if problem_type == "🎯 Root Finding":
 
     # Newton-Raphson
     elif method == "Newton-Raphson Method":
+        st.sidebar.markdown("### 📏 Parameters")
+        
+        # Interval for IVP test (optional)
+        st.sidebar.markdown("**Interval for IVP Test (Optional):**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            a_newton = col1.number_input("a (lower bound):", value=None, format="%.10f", key="newton_a", help="Lower bound of interval for sign change check")
+        with col2:
+            b_newton = col2.number_input("b (upper bound):", value=None, format="%.10f", key="newton_b", help="Upper bound of interval for sign change check")
+        
+        if a_newton is not None and b_newton is not None:
+            if a_newton >= b_newton:
+                st.sidebar.error("❌ a must be less than b!")
+            else:
+                st.sidebar.info(f"💡 IVP test will check for sign change in [{a_newton:.4f}, {b_newton:.4f}]")
+        
+        st.sidebar.markdown("---")
+        
+        # Initial guess
         x0 = st.sidebar.number_input("Initial guess (x₀):", value=1.5, format="%.10f")
 
     # Secant Method
@@ -1490,6 +1522,80 @@ if problem_type == "🎯 Root Finding":
                 if f_prime is None:
                     st.error("❌ Could not compute derivative automatically")
                     st.stop()
+                
+                # IVP Test (Initial Value Problem Test)
+                st.markdown("---")
+                st.markdown("### 🧪 IVP Test (Initial Value Problem Test)")
+                st.markdown("**Checking if Newton's method is suitable for the given initial guess:**")
+                
+                from methods.newton import ivp_test
+                # Pass interval if provided
+                a_ivp = a_newton if 'a_newton' in locals() and a_newton is not None else None
+                b_ivp = b_newton if 'b_newton' in locals() and b_newton is not None else None
+                ivp_result = ivp_test(f, f_prime, x0, tolerance, a=a_ivp, b=b_ivp)
+                
+                with st.expander("📊 **IVP Test Results**", expanded=True):
+                    if ivp_result['pass']:
+                        if ivp_result.get('warnings'):
+                            st.warning(ivp_result['message'])
+                        else:
+                            st.success(ivp_result['message'])
+                    else:
+                        st.error(ivp_result['message'])
+                    
+                    st.markdown("---")
+                    st.markdown("#### Test Details:")
+                    
+                    details = ivp_result.get('details', {})
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if 'f_x0' in details:
+                            st.markdown(f"**f(x₀):** {format_max_precision(details['f_x0'])}")
+                        if 'f_prime_x0' in details:
+                            st.markdown(f"**f'(x₀):** {format_max_precision(details['f_prime_x0'])}")
+                    
+                    with col2:
+                        if 'step_size' in details:
+                            st.markdown(f"**Initial step size |f(x₀)/f'(x₀)|:** {format_max_precision(details['step_size'])}")
+                        if 'x1' in details:
+                            st.markdown(f"**x₁ (first iteration):** {format_max_precision(details['x1'])}")
+                            if 'x1_distance' in details:
+                                st.markdown(f"**|x₁ - x₀|:** {format_max_precision(details['x1_distance'])}")
+                    
+                    # Show sign change check if interval was provided
+                    if 'sign_change_check' in details:
+                        sign_check = details['sign_change_check']
+                        st.markdown("---")
+                        st.markdown("#### 🔍 Sign Change Check (Interval Test):")
+                        st.markdown(f"**Interval:** [{format_max_precision(sign_check['a'])}, {format_max_precision(sign_check['b'])}]")
+                        st.markdown(f"**f(a):** {format_max_precision(sign_check['f(a)'])}")
+                        st.markdown(f"**f(b):** {format_max_precision(sign_check['f(b)'])}")
+                        
+                        if sign_check['sign_change']:
+                            st.success(f"✅ **Sign change detected!** f(a) × f(b) < 0. Root exists in interval [{format_max_precision(sign_check['a'])}, {format_max_precision(sign_check['b'])}] (like bisection method).")
+                        else:
+                            st.warning(f"⚠️ **No sign change.** f(a) × f(b) ≥ 0. Root may not exist in this interval.")
+                    
+                    if ivp_result.get('warnings'):
+                        st.markdown("---")
+                        st.markdown("#### ⚠️ Warnings:")
+                        for warning in ivp_result['warnings']:
+                            st.warning(f"• {warning}")
+                    
+                    if not ivp_result['pass']:
+                        st.markdown("---")
+                        st.markdown("#### ❌ Errors:")
+                        errors = ivp_result.get('details', {}).get('errors', [])
+                        for error in errors:
+                            st.error(f"• {error}")
+                        st.warning("⚠️ **Warning:** The method may fail or produce incorrect results. Proceed with caution.")
+                
+                st.markdown("---")
+                
+                # Show IVP test status before calculation
+                if not ivp_result['pass']:
+                    st.warning("⚠️ **IVP Test Failed:** The calculation will proceed, but convergence is not guaranteed.")
                 
                 with st.spinner("Calculating..."):
                     result = newton_raphson(f, f_prime, x0, tol=tolerance, max_iter=max_iter)
@@ -2379,6 +2485,33 @@ if problem_type == "🎯 Root Finding":
                 for col in df.select_dtypes(include=[np.number]).columns:
                     df[col] = df[col].apply(lambda x: np.real(x) if isinstance(x, complex) or np.iscomplexobj(x) else float(x))
                 
+                # Custom formatting for Newton-Raphson Method
+                if method == "Newton-Raphson Method":
+                    # Reorder columns: n, xₙ, f(xₙ), f'(xₙ), xₙ₊₁, error (error at the end)
+                    df_renamed = df.copy()
+                    
+                    # Remove step column if it exists
+                    if 'step' in df_renamed.columns:
+                        df_renamed = df_renamed.drop(columns=['step'])
+                    
+                    # Reorder columns: n, xₙ, f(xₙ), f'(xₙ), xₙ₊₁, error
+                    # Define desired order (error will be moved to end separately)
+                    column_order = ['n', 'xₙ', 'f(xₙ)', "f'(xₙ)", 'xₙ₊₁']
+                    # Only include columns that exist
+                    column_order = [col for col in column_order if col in df_renamed.columns]
+                    # Get remaining columns (excluding error, which will be added at the end)
+                    remaining_cols = [col for col in df_renamed.columns if col not in column_order and col != 'error']
+                    # Add error at the end if it exists
+                    if 'error' in df_renamed.columns:
+                        final_order = column_order + remaining_cols + ['error']
+                    else:
+                        final_order = column_order + remaining_cols
+                    
+                    # Reorder the dataframe
+                    df_renamed = df_renamed[final_order]
+                    
+                    df = df_renamed
+                
                 # Create a display copy without altering original data
                 df_display = df.copy()
 
@@ -2390,6 +2523,21 @@ if problem_type == "🎯 Root Finding":
                         df_display[col] = df_display[col].map(lambda x: f"{float(x):.10f}")
 
                 st.dataframe(df_display, use_container_width=True, height=400)
+                
+                # Show formula explanations for Newton-Raphson
+                if method == "Newton-Raphson Method":
+                    st.markdown("---")
+                    with st.expander("📐 **Column Formulas**", expanded=False):
+                        st.markdown("""
+                        **Column Definitions:**
+                        - **xₙ**: Current approximation at iteration n
+                        - **f(xₙ)**: Function value at xₙ
+                        - **f'(xₙ)**: Derivative value at xₙ
+                        - **xₙ₊₁**: Next approximation = xₙ - f(xₙ)/f'(xₙ)
+                        - **error**: Relative error = |(xₙ₊₁ - xₙ) / xₙ₊₁|
+                        """)
+                        st.latex(r"\text{Next approximation: } x_{n+1} = x_n - \frac{f(x_n)}{f'(x_n)}")
+                        st.latex(r"\text{Error formula: } \left|\frac{x_{n+1} - x_n}{x_{n+1}}\right|")
                 
                 # Download
                 csv = pd.DataFrame(result['iterations']).to_csv(index=False)
@@ -3357,20 +3505,20 @@ elif problem_type == "🔢 Divided Difference Interpolation":
         # Default examples
         default_points_dd = {
             1: {  # degree 1 → 2 points
-                'x': [8.1, 8.3],
-                'y': [16.94410, 17.56492]
+                'x': [8.0, 8.1],
+                'y': [16.63553, 17.61549]
             },
             2: {  # degree 2 → 3 points
-                'x': [8.1, 8.3, 8.6],
-                'y': [16.94410, 17.56492, 18.50515]
+                'x': [8.0, 8.1, 8.3],
+                'y': [16.63553, 17.61549, 17.56492]
             },
-            3: {  # degree 3 → 4 points (your required example)
-                'x': [8.1, 8.3, 8.6, 8.7],
-                'y': [16.94410, 17.56492, 18.50515, 18.82091]
+            3: {  # degree 3 → 4 points
+                'x': [8.0, 8.1, 8.3, 8.6],
+                'y': [16.63553, 17.61549, 17.56492, 18.50515]
             },
-            4: {  # degree 4 → repeat last as placeholder, or add your own 5th value
-                'x': [8.1, 8.3, 8.6, 8.7, 0],
-                'y': [16.94410, 17.56492, 18.50515, 18.82091, 0]
+            4: {  # degree 4 → 5 points
+                'x': [8.0, 8.1, 8.3, 8.6, 8.7],
+                'y': [16.63553, 17.61549, 17.56492, 18.50515, 18.82091]
             }
         }
 
@@ -3499,7 +3647,7 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                             numerator = dd_table[i+1][0] - dd_table[i][0]
                             denominator = x_points_dd[i+1] - x_points_dd[i]
                             result_val = dd_table[i][1]
-                            st.code(f"f[x{i}, x{i+1}] = ({dd_table[i+1][0]:.6f} - {dd_table[i][0]:.6f}) / ({x_points_dd[i+1]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                            st.code(f"f[x{i}, x{i+1}] = ({format_max_precision(dd_table[i+1][0])} - {format_max_precision(dd_table[i][0])}) / ({format_max_precision(x_points_dd[i+1])} - {format_max_precision(x_points_dd[i])}) = {format_max_precision(result_val)}")
                         
                         # Show second differences if applicable
                         if n > 2:
@@ -3508,7 +3656,7 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                                 numerator = dd_table[i+1][1] - dd_table[i][1]
                                 denominator = x_points_dd[i+2] - x_points_dd[i]
                                 result_val = dd_table[i][2]
-                                st.code(f"f[x{i}, x{i+1}, x{i+2}] = ({dd_table[i+1][1]:.6f} - {dd_table[i][1]:.6f}) / ({x_points_dd[i+2]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                                st.code(f"f[x{i}, x{i+1}, x{i+2}] = ({format_max_precision(dd_table[i+1][1])} - {format_max_precision(dd_table[i][1])}) / ({format_max_precision(x_points_dd[i+2])} - {format_max_precision(x_points_dd[i])}) = {format_max_precision(result_val)}")
                         
                         # Show third differences if applicable
                         if n > 3:
@@ -3517,7 +3665,16 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                                 numerator = dd_table[i+1][2] - dd_table[i][2]
                                 denominator = x_points_dd[i+3] - x_points_dd[i]
                                 result_val = dd_table[i][3]
-                                st.code(f"f[x{i}, x{i+1}, x{i+2}, x{i+3}] = ({dd_table[i+1][2]:.6f} - {dd_table[i][2]:.6f}) / ({x_points_dd[i+3]:.4f} - {x_points_dd[i]:.4f}) = {result_val:.6f}")
+                                st.code(f"f[x{i}, x{i+1}, x{i+2}, x{i+3}] = ({format_max_precision(dd_table[i+1][2])} - {format_max_precision(dd_table[i][2])}) / ({format_max_precision(x_points_dd[i+3])} - {format_max_precision(x_points_dd[i])}) = {format_max_precision(result_val)}")
+                        
+                        # Show fourth differences if applicable
+                        if n > 4:
+                            st.markdown("**Fourth Divided Differences:**")
+                            for i in range(n - 4):
+                                numerator = dd_table[i+1][3] - dd_table[i][3]
+                                denominator = x_points_dd[i+4] - x_points_dd[i]
+                                result_val = dd_table[i][4]
+                                st.code(f"f[x{i}, x{i+1}, x{i+2}, x{i+3}, x{i+4}] = ({format_max_precision(dd_table[i+1][3])} - {format_max_precision(dd_table[i][3])}) / ({format_max_precision(x_points_dd[i+4])} - {format_max_precision(x_points_dd[i])}) = {format_max_precision(result_val)}")
                     
                     # Step 3: Extract coefficients
                     with st.expander("📊 **Step 3: Extract Newton Coefficients**", expanded=True):
@@ -3540,7 +3697,7 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                             
                             coeff_data.append({
                                 'Coefficient': term,
-                                'Value': f"{coeff:.6f}",
+                                'Value': format_max_precision(coeff),
                                 'Corresponds to': corresponds
                             })
                         
@@ -3555,10 +3712,10 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                         st.markdown("**Breaking it down:**")
                         for i, coeff in enumerate(result_dd['coefficients']):
                             if i == 0:
-                                st.write(f"- Term {i+1}: `{coeff:.6f}` (constant term)")
+                                st.write(f"- Term {i+1}: `{format_max_precision(coeff)}` (constant term)")
                             else:
-                                factors = " × ".join([f"(x - {result_dd['x_points'][j]:.4f})" for j in range(i)])
-                                st.write(f"- Term {i+1}: `{coeff:.6f} × {factors}`")
+                                factors = " × ".join([f"(x - {format_max_precision(result_dd['x_points'][j])})" for j in range(i)])
+                                st.write(f"- Term {i+1}: `{format_max_precision(coeff)} × {factors}`")
                     
                     # Step 5: Evaluate
                     with st.expander(f"🎯 **Step 5: Evaluate at x = {eval_x_dd}**", expanded=True):
@@ -3571,17 +3728,17 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                         n = len(result_dd['coefficients'])
                         value = result_dd['coefficients'][n - 1]
                         
-                        eval_steps.append(f"Start with last coefficient: {value:.6f}")
+                        eval_steps.append(f"Start with last coefficient: {format_max_precision(value)}")
                         
                         for i in range(n - 2, -1, -1):
                             old_value = value
                             value = value * (eval_x_dd - result_dd['x_points'][i]) + result_dd['coefficients'][i]
-                            eval_steps.append(f"Step {n-i}: {old_value:.6f} × ({eval_x_dd:.4f} - {result_dd['x_points'][i]:.4f}) + {result_dd['coefficients'][i]:.6f} = {value:.6f}")
+                            eval_steps.append(f"Step {n-i}: {format_max_precision(old_value)} × ({format_max_precision(eval_x_dd)} - {format_max_precision(result_dd['x_points'][i])}) + {format_max_precision(result_dd['coefficients'][i])} = {format_max_precision(value)}")
                         
                         for step in eval_steps:
                             st.code(step)
                         
-                        st.success(f"**Final Result:** P({eval_x_dd}) = {value:.6f}")
+                        st.success(f"**Final Result:** P({format_max_precision(eval_x_dd)}) = {format_max_precision(value)}")
                 
                 st.markdown("---")
                 
@@ -3596,16 +3753,16 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                     # Build table with proper headers
                     table_data = []
                     for i in range(n):
-                        row = {'i': i, 'x_i': f"{x_points_dd[i]:.4f}", 'f[x_i]': f"{dd_table[i][0]:.6f}"}
+                        row = {'i': i, 'x_i': format_max_precision(x_points_dd[i]), 'f[x_i]': format_max_precision(dd_table[i][0])}
                         
                         for j in range(1, n):
                             if i + j < n:
                                 if j == 1:
-                                    row[f'f[x_i,x_i+1]'] = f"{dd_table[i][j]:.6f}"
+                                    row[f'f[x_i,x_i+1]'] = format_max_precision(dd_table[i][j])
                                 elif j == 2:
-                                    row[f'f[x_i,...,x_i+2]'] = f"{dd_table[i][j]:.6f}"
+                                    row[f'f[x_i,...,x_i+2]'] = format_max_precision(dd_table[i][j])
                                 else:
-                                    row[f'f[x_i,...,x_i+{j}]'] = f"{dd_table[i][j]:.6f}"
+                                    row[f'f[x_i,...,x_i+{j}]'] = format_max_precision(dd_table[i][j])
                             else:
                                 if j == 1:
                                     row[f'f[x_i,x_i+1]'] = ""
@@ -3626,7 +3783,7 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Polynomial Degree", result_dd['degree'])
-                col2.metric(f"P({eval_x_dd})", f"{eval_result_dd:.6f}")
+                col2.metric(f"P({format_max_precision(eval_x_dd)})", format_max_precision(eval_result_dd))
                 col3.metric("Data Points Used", len(result_dd['points']))
                 
                 st.markdown("---")
@@ -3634,6 +3791,9 @@ elif problem_type == "🔢 Divided Difference Interpolation":
                 # Data points table
                 st.markdown("### 📍 Input Data Points")
                 points_df_dd = pd.DataFrame(result_dd['points'])
+                # Format to maximum precision
+                for col in points_df_dd.select_dtypes(include=[np.number]).columns:
+                    points_df_dd[col] = points_df_dd[col].apply(lambda x: format_max_precision(x))
                 st.dataframe(points_df_dd, use_container_width=True, hide_index=True)
                 
                 # Graph
@@ -4398,9 +4558,9 @@ elif problem_type == "⚡ Linear Systems (Gauss-Seidel)":
             'x0': [0, 0, 0]
         },
         4: {
-            'name': 'Sparse 4×4',
-            'A': [[10, 1, 0, 0], [1, 10, 1, 0], [0, 1, 10, 1], [0, 0, 1, 10]],
-            'b': [12, 13, 13, 12],
+            'name': '4×4 System',
+            'A': [[4, 1, -1, 1], [1, 4, -1, -1], [-1, -1, 5, 1], [1, -1, 1, 3]],
+            'b': [-2, -1, 0, 1],
             'x0': [0, 0, 0, 0]
         },
         5: {
